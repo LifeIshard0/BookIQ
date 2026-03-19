@@ -1,7 +1,7 @@
 import uuid
 from django.db import models
 from django.conf import settings
-from django.db.models.signals import post_save, post_delete
+from django.db.models.signals import post_save, post_delete, pre_save
 from django.dispatch import receiver
 from django.core.validators import MinValueValidator, MaxValueValidator
 
@@ -37,7 +37,6 @@ class Book(models.Model):
     )
     is_flagged = models.BooleanField(default=False)
     genre_confidence = models.FloatField(default=0.0)
-    embedding = models.JSONField(null=True, blank=True)  # 384-dim vector
 
     # --- Aggregated rating fields (updated via signals) ---
     average_rating = models.FloatField(default=0.0)
@@ -178,3 +177,35 @@ def update_book_on_rating_save(sender, instance, **kwargs):
 @receiver(post_delete, sender=BookRating)
 def update_book_on_rating_delete(sender, instance, **kwargs):
     instance.book.update_rating_aggregates()
+
+@receiver(pre_save, sender=Book)
+def run_pipeline_on_book_save(sender, instance, **kwargs):
+    """
+    Runs the 6-step cleaning pipeline before every Book save.
+    Populates: normalized_title, normalized_author, genre,
+    genre_confidence, quality_score, is_flagged.
+    """
+    from books.services.cleaning import run_cleaning_pipeline
+
+    book_data = {
+        'title': instance.title,
+        'author': instance.author,
+        'isbn_13': instance.isbn_13,
+        'description': instance.description,
+        'genre': instance.genre,
+        'published_year': instance.published_year,
+        'publisher': instance.publisher,
+        'page_count': instance.page_count,
+    }
+
+    cleaned = run_cleaning_pipeline(
+        book_data,
+        book_id=instance.pk if instance.pk else None
+    )
+
+    instance.normalized_title = cleaned.get('normalized_title', '')
+    instance.normalized_author = cleaned.get('normalized_author', '')
+    instance.genre = cleaned.get('genre', instance.genre)
+    instance.genre_confidence = cleaned.get('genre_confidence', 0.0)
+    instance.quality_score = cleaned.get('quality_score', 0.0)
+    instance.is_flagged = cleaned.get('is_flagged', False)

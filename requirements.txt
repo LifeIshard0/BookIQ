@@ -73,7 +73,6 @@ rpds-py==0.30.0
 safetensors==0.7.0
 scikit-learn==1.8.0
 scipy==1.17.1
-sentence-transformers==5.3.0
 setuptools==82.0.1
 shellingham==1.5.4
 sqlparse==0.5.5
@@ -82,9 +81,7 @@ starlette==0.52.1
 sympy==1.14.0
 threadpoolctl==3.6.0
 tokenizers==0.22.2
-torch==2.10.0
 tqdm==4.67.3
-transformers==5.3.0
 triton==3.6.0
 typer==0.24.1
 typing-inspection==0.4.2
