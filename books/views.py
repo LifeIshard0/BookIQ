@@ -2,12 +2,15 @@ from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticatedOrReadOnly, AllowAny
+from rest_framework.parsers import MultiPartParser, FormParser
 from django.shortcuts import get_object_or_404
 from django.db import IntegrityError
 
-from .models import Book, BookRating
-from .serializers import BookSerializer, BookListSerializer, BookRatingSerializer
+from .models import Book, BookRating, ImportJob
+from .serializers import BookSerializer, BookListSerializer, BookRatingSerializer, ImportJobSerializer
 from .permissions import IsCuratorOrAbove, IsAdminRole, IsReaderOrAbove
+
+from books.services.importer import process_csv_import
 
 
 class BookViewSet(viewsets.ModelViewSet):
@@ -103,3 +106,70 @@ class BookViewSet(viewsets.ModelViewSet):
         ratings = book.ratings.select_related('user').all()
         serializer = BookRatingSerializer(ratings, many=True)
         return Response(serializer.data)
+
+class ImportJobViewSet(viewsets.GenericViewSet):
+    """
+    POST /api/imports/        — upload CSV, triggers import, returns job
+    GET  /api/imports/        — list all import jobs (admin only)
+    GET  /api/imports/{id}/   — check status of a specific import job
+    """
+    serializer_class = ImportJobSerializer
+    permission_classes = [IsAdminRole]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def get_queryset(self):
+        return ImportJob.objects.filter(
+            created_by=self.request.user
+        ).order_by('-created_at')
+
+    def list(self, request):
+        queryset = self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    def retrieve(self, request, pk=None):
+        job = get_object_or_404(ImportJob, pk=pk, created_by=request.user)
+        serializer = self.get_serializer(job)
+        return Response(serializer.data)
+
+    def create(self, request):
+        if 'file' not in request.FILES:
+            return Response(
+                {'error': True, 'detail': 'No file uploaded. Send a CSV as multipart/form-data with key "file".'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        uploaded_file = request.FILES['file']
+
+        if not uploaded_file.name.endswith('.csv'):
+            return Response(
+                {'error': True, 'detail': 'Only CSV files are accepted.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if uploaded_file.size > 50 * 1024 * 1024:  # 50MB limit
+            return Response(
+                {'error': True, 'detail': 'File too large. Maximum size is 50MB.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Create the job record immediately — return it to the client
+        job = ImportJob.objects.create(
+            status=ImportJob.Status.PENDING,
+            file_name=uploaded_file.name,
+            created_by=request.user,
+        )
+
+        # Process synchronously (no Celery for coursework)
+        # In production this would be: process_csv_import.delay(...)
+        file_content = uploaded_file.read()
+        process_csv_import(
+            file_content=file_content,
+            file_name=uploaded_file.name,
+            imported_by=request.user,
+            job=job,
+        )
+
+        job.refresh_from_db()
+        serializer = self.get_serializer(job)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)

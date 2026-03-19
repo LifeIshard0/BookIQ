@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Book, BookRating
+from .models import Book, BookRating, ImportJob
 
 
 class BookSerializer(serializers.ModelSerializer):
@@ -115,3 +115,31 @@ class BookRatingSerializer(serializers.ModelSerializer):
                 'Rating must be an integer between 1 and 5.'
             )
         return value
+
+
+class ImportJobSerializer(serializers.ModelSerializer):
+    created_by_username = serializers.SerializerMethodField()
+    progress_percent = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ImportJob
+        fields = [
+            'id', 'status', 'file_name',
+            'total_rows', 'cleaned_count',
+            'duplicate_count', 'failed_count',
+            'error_log', 'progress_percent',
+            'created_by_username',
+            'created_at', 'completed_at',
+        ]
+        read_only_fields = fields
+
+    def get_created_by_username(self, obj):
+        if obj.created_by:
+            return obj.created_by.username
+        return None
+
+    def get_progress_percent(self, obj):
+        if obj.total_rows == 0:
+            return 0
+        processed = obj.cleaned_count + obj.duplicate_count + obj.failed_count
+        return round((processed / obj.total_rows) * 100, 1)
