@@ -8,11 +8,11 @@ from django.db import IntegrityError
 from django.http import Http404
 from django.test import SimpleTestCase
 from django.urls import reverse
+from rest_framework.response import Response
 from rest_framework.test import APIRequestFactory, force_authenticate
 
 from books.models import BookRating
 from books.views import BookViewSet
-
 
 class BookApiTests(SimpleTestCase):
 	def setUp(self):
@@ -56,6 +56,74 @@ class BookApiTests(SimpleTestCase):
 		self.assertEqual(curator_response.status_code, 201)
 		self.assertEqual(curator_response.data['created_by_username'], 'curator')
 		serializer.save.assert_called_once()
+
+	def test_public_list_returns_paginated_results(self):
+		request = self.factory.get(reverse('book-list'))
+
+		books = [SimpleNamespace(title='Book One'), SimpleNamespace(title='Book Two')]
+		serializer = MagicMock()
+		serializer.data = [{'title': 'Book One'}, {'title': 'Book Two'}]
+
+		with patch.object(BookViewSet, 'filter_queryset', return_value=books), \
+			 patch.object(BookViewSet, 'paginate_queryset', return_value=books), \
+			 patch.object(BookViewSet, 'get_serializer', return_value=serializer), \
+			 patch.object(BookViewSet, 'get_paginated_response', return_value=Response({
+				'count': 2,
+				'total_pages': 1,
+				'current_page': 1,
+				'next': None,
+				'previous': None,
+				'results': serializer.data,
+			})):
+			response = BookViewSet.as_view({'get': 'list'})(request)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data['count'], 2)
+		self.assertEqual(response.data['results'][0]['title'], 'Book One')
+
+	def test_curator_cannot_delete_book(self):
+		request = self.factory.delete(reverse('book-detail', args=['book-id']))
+		force_authenticate(request, user=self.curator)
+
+		response = BookViewSet.as_view({'delete': 'destroy'})(request, pk='book-id')
+
+		self.assertEqual(response.status_code, 403)
+
+	def test_ratings_action_returns_book_ratings(self):
+		request = self.factory.get(reverse('book-ratings', args=['book-id']))
+		force_authenticate(request, user=self.reader)
+
+		ratings_queryset = MagicMock()
+		ratings_queryset.all.return_value = [
+			SimpleNamespace(
+				id='rating-1',
+				user=SimpleNamespace(username='reader'),
+				book=SimpleNamespace(title='Book Title'),
+				vote_type='upvote',
+			),
+		]
+		book = SimpleNamespace(pk='book-id', ratings=MagicMock())
+		book.ratings.select_related.return_value = ratings_queryset
+		serializer = MagicMock()
+		serializer.data = [{'id': 'rating-1', 'vote_type': 'upvote'}]
+
+		with patch.object(BookViewSet, 'get_object', return_value=book), \
+			 patch('books.views.BookRatingSerializer', return_value=serializer):
+			response = BookViewSet.as_view({'get': 'ratings'})(request, pk='book-id')
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data[0]['vote_type'], 'upvote')
+
+	def test_my_rating_returns_404_before_rating(self):
+		request = self.factory.get(reverse('book-my-rating', args=['book-id']))
+		force_authenticate(request, user=self.reader)
+
+		with patch.object(BookViewSet, 'get_object', return_value=SimpleNamespace(pk='book-id')), \
+			 patch('books.views.BookRating.objects.get', side_effect=BookRating.DoesNotExist):
+			response = BookViewSet.as_view({'get': 'my_rating'})(request, pk='book-id')
+
+		self.assertEqual(response.status_code, 404)
+		self.assertEqual(response.data['detail'], 'You have not rated this book yet.')
 
 	# Duplicate ISBNs should be converted into a 409 response.
 	def test_duplicate_isbn_returns_conflict(self):

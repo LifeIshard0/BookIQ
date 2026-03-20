@@ -239,3 +239,68 @@ class ImportTests(SimpleTestCase):
 		mock_import.assert_called_once()
 		self.assertEqual(mock_import.call_args.kwargs['file_content'], 'data/books.csv')
 		self.assertEqual(mock_import.call_args.kwargs['file_name'], 'books.csv')
+
+	def test_import_create_returns_201_and_processes_csv(self):
+		request = self.factory.post(
+			reverse('import-list'),
+			{'file': SimpleUploadedFile('sample.csv', b'col1,col2\nvalue1,value2\n', content_type='text/csv')},
+			format='multipart'
+		)
+		force_authenticate(request, user=self.admin)
+
+		fake_job = SimpleNamespace(
+			status='pending',
+			file_name='sample.csv',
+			total_rows=0,
+			cleaned_count=0,
+			duplicate_count=0,
+			failed_count=0,
+			error_log=[],
+			completed_at=None,
+			refresh_from_db=MagicMock(),
+		)
+		serializer = MagicMock()
+		serializer.data = {'id': 'job-id', 'status': 'completed'}
+
+		with patch('books.views.ImportJob.objects.create', return_value=fake_job) as mock_create, \
+			 patch('books.views.process_csv_import') as mock_process, \
+			 patch.object(ImportJobViewSet, 'get_serializer', return_value=serializer):
+			response = ImportJobViewSet.as_view({'post': 'create'})(request)
+
+		self.assertEqual(response.status_code, 201)
+		mock_create.assert_called_once()
+		mock_process.assert_called_once()
+		self.assertEqual(mock_process.call_args.kwargs['file_name'], 'sample.csv')
+		self.assertIs(mock_process.call_args.kwargs['job'], fake_job)
+		self.assertEqual(mock_process.call_args.kwargs['imported_by'], self.admin)
+
+	def test_import_list_returns_serialized_jobs_for_admin(self):
+		request = self.factory.get(reverse('import-list'))
+		force_authenticate(request, user=self.admin)
+
+		jobs = [SimpleNamespace(id='job-1', status='completed')]
+		serializer = MagicMock()
+		serializer.data = [{'id': 'job-1', 'status': 'completed'}]
+
+		with patch.object(ImportJobViewSet, 'get_queryset', return_value=jobs), \
+			 patch.object(ImportJobViewSet, 'get_serializer', return_value=serializer):
+			response = ImportJobViewSet.as_view({'get': 'list'})(request)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data[0]['status'], 'completed')
+
+	def test_import_retrieve_returns_single_job_for_admin(self):
+		request = self.factory.get(reverse('import-detail', args=['job-1']))
+		force_authenticate(request, user=self.admin)
+
+		fake_job = SimpleNamespace(id='job-1', status='completed')
+		serializer = MagicMock()
+		serializer.data = {'id': 'job-1', 'status': 'completed'}
+
+		with patch('books.views.get_object_or_404', return_value=fake_job) as mock_get_object, \
+			 patch.object(ImportJobViewSet, 'get_serializer', return_value=serializer):
+			response = ImportJobViewSet.as_view({'get': 'retrieve'})(request, pk='job-1')
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data['id'], 'job-1')
+		mock_get_object.assert_called_once()

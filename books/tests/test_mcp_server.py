@@ -29,7 +29,7 @@ if not apps.ready:
 BASE_URL = os.environ.get("BOOKIQ_BASE_URL", "http://127.0.0.1:8000")
 
 
-async def test_mcp_tools() -> None:
+async def run_mcp_tools() -> None:
 	async with httpx.AsyncClient(timeout=10.0) as client:
 		r = await client.get(
 			f"{BASE_URL}/api/books/search/",
@@ -66,4 +66,4 @@ async def test_mcp_tools() -> None:
 
 
 if __name__ == "__main__":
-	asyncio.run(test_mcp_tools())
+	asyncio.run(run_mcp_tools())

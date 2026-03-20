@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 from django.urls import reverse
+from rest_framework.exceptions import AuthenticationFailed, ValidationError
 from rest_framework.test import APIRequestFactory, force_authenticate
 from rest_framework_simplejwt.exceptions import ExpiredTokenError
 from rest_framework_simplejwt.tokens import AccessToken
@@ -166,3 +167,56 @@ class AuthApiTests(SimpleTestCase):
 		self.assertEqual(patch_response.data['bio'], 'Updated bio')
 		serializer.is_valid.assert_called_once()
 		serializer.save.assert_called_once()
+
+	def test_register_view_returns_400_for_validation_errors(self):
+		request = self.factory.post(
+			reverse('auth-register'),
+			{
+				'username': 'newuser',
+				'email': 'newuser@example.com',
+				'password': 'StrongPass123!',
+				'password2': 'Mismatch123!',
+			},
+			format='json'
+		)
+
+		serializer = MagicMock()
+		serializer.is_valid.side_effect = ValidationError({'password': ['Passwords do not match.']})
+
+		with patch.object(RegisterView, 'get_serializer', return_value=serializer):
+			response = RegisterView.as_view()(request)
+
+		self.assertEqual(response.status_code, 400)
+		serializer.save.assert_not_called()
+
+	def test_login_view_returns_401_for_invalid_credentials(self):
+		request = self.factory.post(
+			reverse('auth-login'),
+			{'username': 'loginuser', 'password': 'WrongPass123!'},
+			format='json'
+		)
+
+		serializer = MagicMock()
+		serializer.is_valid.side_effect = AuthenticationFailed(
+			'No active account found with the given credentials'
+		)
+
+		with patch.object(CustomTokenObtainPairView, 'get_serializer', return_value=serializer):
+			response = CustomTokenObtainPairView.as_view()(request)
+
+		self.assertEqual(response.status_code, 401)
+
+	def test_refresh_view_rejects_invalid_refresh_token(self):
+		request = self.factory.post(
+			reverse('token-refresh'),
+			{'refresh': 'not-a-token'},
+			format='json'
+		)
+
+		serializer = MagicMock()
+		serializer.is_valid.side_effect = ValidationError({'refresh': ['Token is invalid or expired.']})
+
+		with patch.object(TokenRefreshView, 'get_serializer', return_value=serializer):
+			response = TokenRefreshView.as_view()(request)
+
+		self.assertEqual(response.status_code, 400)

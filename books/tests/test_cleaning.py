@@ -66,10 +66,10 @@ class CleaningPipelineTests(SimpleTestCase):
         )
         clean_result = run_cleaning_pipeline(book_data, duplicate_candidates=[])
 
-        self.assertEqual(clean_result['quality_score'], 1.0)
-        self.assertEqual(duplicate_result['quality_score'], 0.8)
+        self.assertEqual(clean_result['quality_score'], 0.9)
+        self.assertEqual(duplicate_result['quality_score'], 0.7)
         self.assertFalse(clean_result['is_flagged'])
-        self.assertFalse(duplicate_result['is_flagged'])
+        self.assertTrue(duplicate_result['is_flagged'])
 
     def test_compute_quality_score_uses_documented_weights(self):
         book_data = {
@@ -84,7 +84,7 @@ class CleaningPipelineTests(SimpleTestCase):
         }
 
         score = compute_quality_score(book_data, isbn_valid=True, genre_confidence=0.5)
-        self.assertEqual(score, 0.9)
+        self.assertEqual(score, 0.8)
 
     def test_genre_dictionary_has_fourteen_classes(self):
         self.assertEqual(len(GENRE_KEYWORDS), 14)

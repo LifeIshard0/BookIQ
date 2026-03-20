@@ -11,7 +11,6 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 
 from books.views import BookViewSet
 
-
 class SearchQuerySet(list):
 	def all(self):
 		return self
@@ -677,11 +676,14 @@ class BookSearchTests(SimpleTestCase):
 		self.assertIn('required', response.data['detail'])
 
 	def test_hybrid_invalid_weight_returns_400(self):
-		request = self.factory.get('/api/books/hybrid-search/?q=fiction&fts_weight=2.5')
+		request = self.factory.get('/api/books/hybrid-search/?q=fiction&fts_weight=5.0')
 		response = BookViewSet.as_view({'get': 'hybrid_search'})(request)
 
 		self.assertEqual(response.status_code, 400)
-		self.assertIn('between 0.0 and 1.0', response.data['detail'])
+		self.assertEqual(
+			response.data['detail'],
+			'fts_weight and popularity_weight must be floats between 0.0 and 1.0.'
+		)
 
 	def test_hybrid_pagination_returns_requested_page(self):
 		books = SearchQuerySet([

@@ -12,6 +12,7 @@ django-filter==25.2
 djangorestframework==3.17.0
 djangorestframework_simplejwt==5.5.1
 drf-spectacular==0.29.0
+Faker==40.11.0
 h11==0.16.0
 httpcore==1.0.9
 httpx==0.28.1
