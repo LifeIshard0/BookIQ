@@ -60,6 +60,8 @@ class BookViewSet(viewsets.ModelViewSet):
             return [IsCuratorOrAbove()]
         if self.action == 'destroy':
             return [IsAdminRole()]
+        if self.action == 'recommendations':
+            return [IsReaderOrAbove()]
         return [IsAuthenticatedOrReadOnly()]
 
     def perform_create(self, serializer):
@@ -352,6 +354,84 @@ class BookViewSet(viewsets.ModelViewSet):
             'results': serialised_results,
         })
 
+    @action(
+        detail=False,
+        methods=['get'],
+        permission_classes=[IsReaderOrAbove],
+        url_path='recommendations'
+    )
+    def recommendations(self, request):
+        """
+        GET /api/books/recommendations/
+
+        Returns personalised book recommendations for the
+        authenticated user.
+
+        Strategy waterfall (automatic):
+        1. content_based      — genre/author profile from liked books
+        2. collaborative      — Jaccard similarity with similar users
+        3. popularity_wilson  — cold-start Wilson Score fallback
+
+        Optional params:
+        limit      — number of results (default 20, max 50)
+        strategy   — force a specific strategy:
+                    content_based | collaborative | popularity
+        """
+        from books.services.recommender import (
+            get_recommendations,
+            content_based_recommendations,
+            collaborative_recommendations,
+            popularity_recommendations,
+            build_taste_profile,
+        )
+
+        try:
+            limit = min(50, max(1, int(request.GET.get('limit', 20))))
+        except ValueError:
+            limit = 20
+
+        forced_strategy = request.GET.get('strategy', '').strip().lower()
+
+        if forced_strategy == 'content_based':
+            results, strategy = content_based_recommendations(
+                request.user, limit=limit
+            )
+        elif forced_strategy == 'collaborative':
+            results, strategy = collaborative_recommendations(
+                request.user, limit=limit
+            )
+        elif forced_strategy == 'popularity':
+            profile = build_taste_profile(request.user)
+            results, strategy = popularity_recommendations(
+                limit=limit,
+                exclude_ids=profile['all_rated_ids']
+            )
+        else:
+            results, strategy = get_recommendations(request.user, limit=limit)
+
+        serializer = BookListSerializer(results, many=True)
+
+        # Build profile summary for response metadata
+        profile = build_taste_profile(request.user)
+        top_genres = [
+            g for g, _ in profile['liked_genres'].most_common(3)
+        ]
+        top_authors = [
+            a for a, _ in profile['liked_authors'].most_common(3)
+        ]
+
+        return Response({
+            'recommendation_strategy': strategy,
+            'count': len(results),
+            'limit': limit,
+            'profile_summary': {
+                'total_ratings': len(profile['all_rated_ids']),
+                'liked_books': len(profile['liked_book_ids']),
+                'top_genres': top_genres,
+                'top_authors': top_authors,
+            },
+            'results': serializer.data,
+        })
 
 
 class ImportJobViewSet(viewsets.GenericViewSet):
