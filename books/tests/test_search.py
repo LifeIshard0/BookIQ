@@ -1,5 +1,6 @@
 """Book search and pagination endpoint tests."""
 
+from contextlib import ExitStack
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -15,18 +16,32 @@ class SearchQuerySet(list):
 	def all(self):
 		return self
 
+	def none(self):
+		return SearchQuerySet([])
+
 	def filter(self, **kwargs):
 		result = self
 		for key, value in kwargs.items():
+			if key == 'search_vector':
+				continue
+			if key == 'rank__gte':
+				result = [item for item in result if getattr(item, 'rank', value) >= value]
+				continue
 			result = [item for item in result if getattr(item, key) == value]
 		return SearchQuerySet(result)
+
+	def annotate(self, **kwargs):
+		return self
 
 	def order_by(self, field_name):
 		reverse = field_name.startswith('-')
 		attr_name = field_name.lstrip('-')
 		return SearchQuerySet(
-			sorted(self, key=lambda item: getattr(item, attr_name), reverse=reverse)
+			sorted(self, key=lambda item: getattr(item, attr_name, 0), reverse=reverse)
 		)
+
+	def distinct(self):
+		return self
 
 
 class BookSearchTests(SimpleTestCase):
@@ -48,43 +63,404 @@ class BookSearchTests(SimpleTestCase):
 		filterset.qs = queryset
 		return filterset
 
-	def test_basic_keyword_search_returns_paginated_results(self):
-		request = self.factory.get('/api/books/search/?q=gatsby')
-
-		books = SearchQuerySet([
-			SimpleNamespace(
-				title='The Great Gatsby',
-				author='F. Scott Fitzgerald',
-				genre='Fiction',
-				is_flagged=False,
-				quality_score=0.91,
-				average_rating=3.91,
-				rating_count=182,
-			),
-		])
+	def _run_search(self, request_path, books, serializer_data, paginator_data, full_text_search_return=None):
+		request = self.factory.get(request_path)
 		filterset = self._make_filterset(books)
 		serializer = MagicMock()
-		serializer.data = [{'title': 'The Great Gatsby'}]
-		paginator = self._make_paginator(
+		serializer.data = serializer_data
+		paginator = self._make_paginator(paginator_data, page=books)
+
+		with ExitStack() as stack:
+			stack.enter_context(patch('books.views.BookFilter', return_value=filterset))
+			stack.enter_context(patch('books.views.BookListSerializer', return_value=serializer))
+			stack.enter_context(patch('books.views.BookPagination', return_value=paginator))
+			search_mock = None
+			if full_text_search_return is not None:
+				search_mock = stack.enter_context(
+					patch('books.services.search.full_text_search', return_value=full_text_search_return)
+				)
+			response = BookViewSet.as_view({'get': 'search'})(request)
+
+		return response, search_mock
+
+	def test_basic_fts_query_returns_rank_and_headline(self):
+		books = SearchQuerySet([
+			SimpleNamespace(
+				title='1984',
+				author='George Orwell',
+				genre='Dystopian',
+				quality_score=0.96,
+				average_rating=4.2,
+				rating_count=2400,
+				rank=0.94231,
+				headline='A <mark>dystopian</mark> <mark>society</mark> shaped by surveillance.',
+			),
+		])
+		response, search_mock = self._run_search(
+			'/api/books/search/?q=dystopian+society',
+			books,
+			[{'title': '1984'}],
 			{
 				'count': 1,
 				'total_pages': 1,
 				'current_page': 1,
 				'next': None,
 				'previous': None,
-				'results': serializer.data,
+				'results': [{'title': '1984'}],
 			},
-			page=books,
+			full_text_search_return=books,
 		)
 
-		with patch('books.views.BookFilter', return_value=filterset), \
-			 patch('books.views.BookListSerializer', return_value=serializer), \
-			 patch('books.views.BookPagination', return_value=paginator):
-			response = BookViewSet.as_view({'get': 'search'})(request)
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data['query'], 'dystopian society')
+		self.assertEqual(response.data['search_type'], 'full_text_search')
+		self.assertEqual(response.data['results'][0]['title'], '1984')
+		self.assertEqual(response.data['results'][0]['rank'], 0.9423)
+		self.assertIn('<mark>', response.data['results'][0]['headline'])
+		search_mock.assert_called_once_with('dystopian society', queryset=books)
+
+	def test_phrase_search_uses_websearch_syntax(self):
+		books = SearchQuerySet([
+			SimpleNamespace(
+				title='The Great Gatsby',
+				author='F. Scott Fitzgerald',
+				genre='Classic',
+				quality_score=0.93,
+				average_rating=4.4,
+				rating_count=3200,
+				rank=0.9912,
+				headline='An exact <mark>Great Gatsby</mark> phrase match.',
+			),
+			SimpleNamespace(
+				title='Gatsby and Friends',
+				author='Another Author',
+				genre='Classic',
+				quality_score=0.81,
+				average_rating=3.9,
+				rating_count=140,
+				rank=0.2145,
+				headline='A weaker partial match.',
+			),
+		])
+		response, search_mock = self._run_search(
+			'/api/books/search/?q=%22great+gatsby%22',
+			books,
+			[
+				{'title': 'The Great Gatsby'},
+				{'title': 'Gatsby and Friends'},
+			],
+			{
+				'count': 2,
+				'total_pages': 1,
+				'current_page': 1,
+				'next': None,
+				'previous': None,
+				'results': [
+					{'title': 'The Great Gatsby'},
+					{'title': 'Gatsby and Friends'},
+				],
+			},
+			full_text_search_return=books,
+		)
 
 		self.assertEqual(response.status_code, 200)
-		self.assertEqual(response.data['query'], 'gatsby')
 		self.assertEqual(response.data['results'][0]['title'], 'The Great Gatsby')
+		self.assertEqual(search_mock.call_args.args[0], '"great gatsby"')
+
+	def test_or_query_returns_books_for_both_authors(self):
+		books = SearchQuerySet([
+			SimpleNamespace(
+				title='The Hobbit',
+				author='J.R.R. Tolkien',
+				genre='Fantasy',
+				quality_score=0.95,
+				average_rating=4.8,
+				rating_count=5000,
+				rank=0.9611,
+				headline='Middle-earth adventure.',
+			),
+			SimpleNamespace(
+				title='Harry Potter and the Philosopher\'s Stone',
+				author='J.K. Rowling',
+				genre='Fantasy',
+				quality_score=0.94,
+				average_rating=4.7,
+				rating_count=4200,
+				rank=0.9453,
+				headline='Wizarding world adventure.',
+			),
+		])
+		response, search_mock = self._run_search(
+			'/api/books/search/?q=tolkien+OR+rowling',
+			books,
+			[
+				{'title': 'The Hobbit', 'author': 'J.R.R. Tolkien'},
+				{'title': 'Harry Potter and the Philosopher\'s Stone', 'author': 'J.K. Rowling'},
+			],
+			{
+				'count': 2,
+				'total_pages': 1,
+				'current_page': 1,
+				'next': None,
+				'previous': None,
+				'results': [
+					{'title': 'The Hobbit', 'author': 'J.R.R. Tolkien'},
+					{'title': 'Harry Potter and the Philosopher\'s Stone', 'author': 'J.K. Rowling'},
+				],
+			},
+			full_text_search_return=books,
+		)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual([item['author'] for item in response.data['results']], ['J.R.R. Tolkien', 'J.K. Rowling'])
+		search_mock.assert_called_once_with('tolkien OR rowling', queryset=books)
+
+	def test_exclusion_query_filters_out_banned_terms(self):
+		books = SearchQuerySet([
+			SimpleNamespace(
+				title='Magic Without Wizards',
+				author='Author One',
+				genre='Fantasy',
+				quality_score=0.88,
+				average_rating=4.1,
+				rating_count=320,
+				rank=0.8732,
+				headline='A magic story with no wizard in sight.',
+			),
+		])
+		response, search_mock = self._run_search(
+			'/api/books/search/?q=magic+-wizard',
+			books,
+			[{'title': 'Magic Without Wizards'}],
+			{
+				'count': 1,
+				'total_pages': 1,
+				'current_page': 1,
+				'next': None,
+				'previous': None,
+				'results': [{'title': 'Magic Without Wizards'}],
+			},
+			full_text_search_return=books,
+		)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data['results'][0]['title'], 'Magic Without Wizards')
+		search_mock.assert_called_once_with('magic -wizard', queryset=books)
+
+	def test_fts_with_genre_filter_applies_both_constraints(self):
+		books = SearchQuerySet([
+			SimpleNamespace(
+				title='Space Atlas',
+				author='Writer One',
+				genre='Science Fiction',
+				quality_score=0.84,
+				average_rating=4.3,
+				rating_count=110,
+				rank=0.9024,
+				headline='A journey through <mark>space</mark>.',
+			),
+		])
+		response, search_mock = self._run_search(
+			'/api/books/search/?q=space&genre=science+fiction',
+			books,
+			[{'title': 'Space Atlas', 'genre': 'Science Fiction'}],
+			{
+				'count': 1,
+				'total_pages': 1,
+				'current_page': 1,
+				'next': None,
+				'previous': None,
+				'results': [{'title': 'Space Atlas', 'genre': 'Science Fiction'}],
+			},
+			full_text_search_return=books,
+		)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data['search_type'], 'full_text_search')
+		self.assertEqual(response.data['filters_applied'], {'genre': 'science fiction'})
+		self.assertEqual(response.data['results'][0]['genre'], 'Science Fiction')
+		search_mock.assert_called_once_with('space', queryset=books)
+
+	def test_fts_with_quality_filter_keeps_high_quality_results(self):
+		books = SearchQuerySet([
+			SimpleNamespace(
+				title='A History of Europe',
+				author='Historian',
+				genre='History',
+				quality_score=0.83,
+				average_rating=4.5,
+				rating_count=480,
+				rank=0.9176,
+				headline='A broad <mark>history</mark> survey.',
+			),
+		])
+		response, search_mock = self._run_search(
+			'/api/books/search/?q=history&min_quality=0.7',
+			books,
+			[{'title': 'A History of Europe', 'quality_score': 0.83}],
+			{
+				'count': 1,
+				'total_pages': 1,
+				'current_page': 1,
+				'next': None,
+				'previous': None,
+				'results': [{'title': 'A History of Europe', 'quality_score': 0.83}],
+			},
+			full_text_search_return=books,
+		)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data['filters_applied'], {'min_quality': '0.7'})
+		self.assertGreaterEqual(response.data['results'][0]['quality_score'], 0.7)
+		search_mock.assert_called_once_with('history', queryset=books)
+
+	def test_filter_only_query_orders_by_average_rating(self):
+		response, search_mock = self._run_search(
+			'/api/books/search/?genre=biography&min_rating=4.0',
+			SearchQuerySet([
+				SimpleNamespace(
+					title='Biography B',
+					genre='Biography',
+					quality_score=0.81,
+					average_rating=4.1,
+					rating_count=60,
+				),
+				SimpleNamespace(
+					title='Biography A',
+					genre='Biography',
+					quality_score=0.88,
+					average_rating=4.7,
+					rating_count=120,
+				),
+			]),
+			[
+				{'title': 'Biography A', 'average_rating': 4.7},
+				{'title': 'Biography B', 'average_rating': 4.1},
+			],
+			{
+				'count': 2,
+				'total_pages': 1,
+				'current_page': 1,
+				'next': None,
+				'previous': None,
+				'results': [
+					{'title': 'Biography A', 'average_rating': 4.7},
+					{'title': 'Biography B', 'average_rating': 4.1},
+				],
+			},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data['search_type'], 'filter_only')
+		self.assertEqual([item['title'] for item in response.data['results']], ['Biography A', 'Biography B'])
+		self.assertNotIn('rank', response.data['results'][0])
+		self.assertNotIn('headline', response.data['results'][0])
+		self.assertIsNone(search_mock)
+
+	def test_stemming_query_returns_run_variants(self):
+		books = SearchQuerySet([
+			SimpleNamespace(
+				title='The Runner',
+				author='Writer One',
+				genre='Fiction',
+				quality_score=0.86,
+				average_rating=4.0,
+				rating_count=84,
+				rank=0.9321,
+				headline='A tale about a <mark>runner</mark>.',
+			),
+			SimpleNamespace(
+				title='Long Runs',
+				author='Writer Two',
+				genre='Fiction',
+				quality_score=0.82,
+				average_rating=3.9,
+				rating_count=51,
+				rank=0.8814,
+				headline='Stories about <mark>runs</mark> and endurance.',
+			),
+			SimpleNamespace(
+				title='Run Fast',
+				author='Writer Three',
+				genre='Fiction',
+				quality_score=0.8,
+				average_rating=3.8,
+				rating_count=40,
+				rank=0.8025,
+				headline='A book about a <mark>run</mark>.',
+			),
+		])
+		response, search_mock = self._run_search(
+			'/api/books/search/?q=running',
+			books,
+			[
+				{'title': 'The Runner'},
+				{'title': 'Long Runs'},
+				{'title': 'Run Fast'},
+			],
+			{
+				'count': 3,
+				'total_pages': 1,
+				'current_page': 1,
+				'next': None,
+				'previous': None,
+				'results': [
+					{'title': 'The Runner'},
+					{'title': 'Long Runs'},
+					{'title': 'Run Fast'},
+				],
+			},
+			full_text_search_return=books,
+		)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data['results'][0]['title'], 'The Runner')
+		self.assertEqual({item['title'] for item in response.data['results']}, {'The Runner', 'Long Runs', 'Run Fast'})
+		search_mock.assert_called_once_with('running', queryset=books)
+
+	def test_empty_query_returns_all_books_ordered_by_average_rating(self):
+		response, search_mock = self._run_search(
+			'/api/books/search/?genre=biography&min_rating=4.0',
+			SearchQuerySet([
+				SimpleNamespace(
+					title='Biography B',
+					genre='Biography',
+					quality_score=0.81,
+					average_rating=4.1,
+					rating_count=60,
+				),
+				SimpleNamespace(
+					title='Biography A',
+					genre='Biography',
+					quality_score=0.88,
+					average_rating=4.7,
+					rating_count=120,
+				),
+			]),
+			[
+				{'title': 'Biography A', 'average_rating': 4.7},
+				{'title': 'Biography B', 'average_rating': 4.1},
+			],
+			{
+				'count': 2,
+				'total_pages': 1,
+				'current_page': 1,
+				'next': None,
+				'previous': None,
+				'results': [
+					{'title': 'Biography A', 'average_rating': 4.7},
+					{'title': 'Biography B', 'average_rating': 4.1},
+				],
+			},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data['query'], '')
+		self.assertEqual(response.data['search_type'], 'filter_only')
+		self.assertEqual([item['title'] for item in response.data['results']], ['Biography A', 'Biography B'])
+		self.assertNotIn('rank', response.data['results'][0])
+		self.assertNotIn('headline', response.data['results'][0])
+		self.assertIsNone(search_mock)
 
 	def test_genre_filter_returns_matching_books(self):
 		request = self.factory.get('/api/books/search/?genre=fiction')
@@ -140,7 +516,9 @@ class BookSearchTests(SimpleTestCase):
 			response = BookViewSet.as_view({'get': 'search'})(request)
 
 		self.assertEqual(response.status_code, 200)
-		self.assertEqual(response.data['filters_applied'], {'q': 'war', 'min_quality': '0.7'})
+		self.assertEqual(response.data['search_type'], 'full_text_search')
+		self.assertEqual(response.data['filters_applied'], {'min_quality': '0.7'})
+		self.assertEqual(response.data['results'][0]['title'], 'War and Peace')
 
 	def test_reader_can_search_flagged_books(self):
 		request = self.factory.get('/api/books/search/?is_flagged=true')

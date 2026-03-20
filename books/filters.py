@@ -71,6 +71,10 @@ class BookFilter(django_filters.FilterSet):
 
     def filter_keyword(self, queryset, name, value):
         """
+        Used for basic keyword filtering on the list endpoint.
+        The /search/ action bypasses this and uses PostgreSQL FTS instead.
+        Kept here for compatibility and non-FTS filter-only queries.
+
         Multi-field keyword search using OR logic across:
         - normalized_title
         - normalized_author

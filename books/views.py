@@ -167,70 +167,88 @@ class BookViewSet(viewsets.ModelViewSet):
         """
         GET /api/books/search/?q=gatsby&genre=fiction&min_quality=0.8
 
-        Keyword search across normalized_title, normalized_author,
-        genre, description, isbn_13 with additional filters.
+        Full-text search using PostgreSQL SearchVector + SearchRank
+        with GIN index. Supports websearch syntax:
+        "exact phrase"   — phrase match
+        word1 word2      — both words required
+        word1 OR word2   — either word
+        -word            — exclude word
 
-        Supported params:
-        q              — keyword (searches title, author, genre, description, isbn)
-        genre          — partial genre match
-        author         — partial author match
-        language       — exact language code (e.g. 'en')
-        publisher      — partial publisher match
-        is_flagged     — true/false
-        min_quality    — float 0.0–1.0
-        max_quality    — float 0.0–1.0
-        min_rating     — float 1–5
-        published_after  — integer year
-        published_before — integer year
-        ordering       — field name (prefix with - for descending)
-        page           — page number
-        page_size      — results per page (max 100)
+        Additional filter params:
+        genre, author, language, publisher, is_flagged,
+        min_quality, max_quality, min_rating,
+        published_after, published_before,
+        ordering, page, page_size
         """
-        queryset = Book.objects.select_related('created_by').all()
+        from books.services.search import full_text_search
 
-        # Apply filters
-        filterset = BookFilter(request.GET, queryset=queryset)
+        raw_query = request.GET.get('q', '').strip()
+
+        # Start with base queryset, apply non-search filters first
+        base_qs = Book.objects.select_related('created_by').all()
+        filterset = BookFilter(request.GET, queryset=base_qs)
+
         if not filterset.is_valid():
             return Response(
-                {
-                    'error': True,
-                    'status_code': 400,
-                    'detail': filterset.errors
-                },
+                {'error': True, 'status_code': 400, 'detail': filterset.errors},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        queryset = filterset.qs
 
-        # Apply ordering
-        ordering = request.GET.get('ordering', '-average_rating')
-        allowed_orderings = [
-            'created_at', '-created_at',
-            'average_rating', '-average_rating',
-            'quality_score', '-quality_score',
-            'published_year', '-published_year',
-            'rating_count', '-rating_count',
-            'title', '-title',
-        ]
-        if ordering in allowed_orderings:
-            queryset = queryset.order_by(ordering)
+        filtered_qs = filterset.qs
+
+        # If a query is provided, apply FTS on top of the filtered queryset
+        if raw_query:
+            # Remove keyword filter from filterset (we handle it via FTS)
+            # FTS returns annotated queryset with .rank and .headline
+            results_qs = full_text_search(raw_query, queryset=filtered_qs)
+            use_fts = True
         else:
-            queryset = queryset.order_by('-average_rating')
+            # No query — return filtered list ordered by average_rating
+            ordering = request.GET.get('ordering', '-average_rating')
+            allowed_orderings = [
+                'created_at', '-created_at',
+                'average_rating', '-average_rating',
+                'quality_score', '-quality_score',
+                'published_year', '-published_year',
+                'rating_count', '-rating_count',
+                'title', '-title',
+            ]
+            results_qs = filtered_qs.order_by(
+                ordering if ordering in allowed_orderings else '-average_rating'
+            )
+            use_fts = False
 
         # Paginate
         paginator = BookPagination()
-        page = paginator.paginate_queryset(queryset, request)
+        page = paginator.paginate_queryset(results_qs, request)
+
         if page is not None:
             serializer = BookListSerializer(page, many=True)
-            response = paginator.get_paginated_response(serializer.data)
-            response.data['query'] = request.GET.get('q', '')
-            response.data['filters_applied'] = {
-                k: v for k, v in request.GET.items()
-                if k not in ('page', 'page_size', 'ordering')
-            }
-            return response
+            response_data = paginator.get_paginated_response(serializer.data).data
 
-        serializer = BookListSerializer(queryset, many=True)
+            # Add FTS metadata to response
+            response_data['query'] = raw_query
+            response_data['search_type'] = 'full_text_search' if use_fts else 'filter_only'
+            response_data['filters_applied'] = {
+                k: v for k, v in request.GET.items()
+                if k not in ('page', 'page_size', 'ordering', 'q')
+            }
+
+            # If FTS — include rank and headline in results
+            if use_fts and page:
+                for i, book in enumerate(page):
+                    if hasattr(book, 'rank'):
+                        response_data['results'][i]['rank'] = round(
+                            float(book.rank), 4
+                        )
+                    if hasattr(book, 'headline'):
+                        response_data['results'][i]['headline'] = book.headline
+
+            return Response(response_data)
+
+        serializer = BookListSerializer(results_qs, many=True)
         return Response(serializer.data)
+
 
 
 class ImportJobViewSet(viewsets.GenericViewSet):

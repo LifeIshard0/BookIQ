@@ -5,6 +5,9 @@ from django.db.models.signals import post_save, post_delete, pre_save
 from django.dispatch import receiver
 from django.core.validators import MinValueValidator, MaxValueValidator
 
+from django.contrib.postgres.search import SearchVectorField
+from django.contrib.postgres.indexes import GinIndex
+
 
 class Book(models.Model):
     # --- Identity ---
@@ -43,6 +46,9 @@ class Book(models.Model):
     rating_count = models.IntegerField(default=0)
     upvote_count = models.IntegerField(default=0)
     downvote_count = models.IntegerField(default=0)
+    # --- Full-Text Search ---
+    search_vector = SearchVectorField(null=True, blank=True)
+
 
     # --- Provenance ---
     created_by = models.ForeignKey(
@@ -62,6 +68,7 @@ class Book(models.Model):
             models.Index(fields=['quality_score']),
             models.Index(fields=['is_flagged']),
             models.Index(fields=['average_rating']),
+            GinIndex(fields=['search_vector'], name='book_search_vector_gin'),
         ]
 
     def __str__(self):
