@@ -83,6 +83,31 @@ class BookSearchTests(SimpleTestCase):
 
 		return response, search_mock
 
+	def _run_hybrid_search(
+		self,
+		request_path,
+		books,
+		service_result,
+		serializer_data_by_title,
+		wilson_score_value=0.4219,
+	):
+		request = self.factory.get(request_path)
+		filterset = self._make_filterset(books)
+
+		def serializer_side_effect(book):
+			serializer = MagicMock()
+			serializer.data = serializer_data_by_title[book.title]
+			return serializer
+
+		with ExitStack() as stack:
+			stack.enter_context(patch('books.views.BookFilter', return_value=filterset))
+			stack.enter_context(patch('books.views.BookListSerializer', side_effect=serializer_side_effect))
+			stack.enter_context(patch('books.services.search.hybrid_search', return_value=service_result))
+			stack.enter_context(patch('books.views.wilson_score_lower_bound', return_value=wilson_score_value))
+			response = BookViewSet.as_view({'get': 'hybrid_search'})(request)
+
+		return response
+
 	def test_basic_fts_query_returns_rank_and_headline(self):
 		books = SearchQuerySet([
 			SimpleNamespace(
@@ -461,6 +486,229 @@ class BookSearchTests(SimpleTestCase):
 		self.assertNotIn('rank', response.data['results'][0])
 		self.assertNotIn('headline', response.data['results'][0])
 		self.assertIsNone(search_mock)
+
+	def test_basic_hybrid_search_returns_rrf_scores(self):
+		popular_book = SimpleNamespace(
+			title='War and Peace',
+			author='Leo Tolstoy',
+			genre='Historical Fiction',
+			quality_score=0.97,
+			average_rating=4.7,
+			rating_count=1800,
+			upvote_count=400,
+			downvote_count=40,
+			rank=0.8821,
+		)
+		query_result = {
+			'results': [(popular_book, 0.0278)],
+			'count': 1,
+			'page': 1,
+			'page_size': 20,
+			'total_pages': 1,
+			'query': 'war',
+			'fts_weight': 0.7,
+			'popularity_weight': 0.3,
+		}
+		response = self._run_hybrid_search(
+			'/api/books/hybrid-search/?q=war',
+			SearchQuerySet([popular_book]),
+			query_result,
+			{
+				'War and Peace': {'title': 'War and Peace', 'average_rating': 4.7},
+			},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data['search_type'], 'hybrid_rrf')
+		self.assertEqual(response.data['query'], 'war')
+		self.assertEqual(response.data['count'], 1)
+		self.assertEqual(response.data['page'], 1)
+		self.assertEqual(response.data['page_size'], 20)
+		self.assertEqual(response.data['total_pages'], 1)
+		self.assertEqual(response.data['fts_weight'], 0.7)
+		self.assertEqual(response.data['popularity_weight'], 0.3)
+		self.assertEqual(response.data['results'][0]['rrf_score'], 0.0278)
+		self.assertEqual(response.data['results'][0]['wilson_score'], 0.4219)
+		self.assertEqual(response.data['results'][0]['fts_rank'], 0.8821)
+
+	def test_hybrid_vs_fts_ordering_differs_for_same_query(self):
+		fts_books = SearchQuerySet([
+			SimpleNamespace(title='Exact History Match', rank=0.9921, headline='Exact match.', upvote_count=12, downvote_count=3),
+			SimpleNamespace(title='Well Rated History Book', rank=0.7312, headline='Popular history.', upvote_count=120, downvote_count=10),
+		])
+		fts_response, _ = self._run_search(
+			'/api/books/search/?q=history',
+			fts_books,
+			[{'title': 'Exact History Match'}, {'title': 'Well Rated History Book'}],
+			{
+				'count': 2,
+				'total_pages': 1,
+				'current_page': 1,
+				'next': None,
+				'previous': None,
+				'results': [{'title': 'Exact History Match'}, {'title': 'Well Rated History Book'}],
+			},
+			full_text_search_return=fts_books,
+		)
+
+		hybrid_books = SearchQuerySet([
+			SimpleNamespace(title='Exact History Match', rank=0.9921, upvote_count=12, downvote_count=3),
+			SimpleNamespace(title='Well Rated History Book', rank=0.7312, upvote_count=120, downvote_count=10),
+		])
+		hybrid_response = self._run_hybrid_search(
+			'/api/books/hybrid-search/?q=history',
+			hybrid_books,
+			{
+				'results': [
+					(hybrid_books[1], 0.0301),
+					(hybrid_books[0], 0.0298),
+				],
+				'count': 2,
+				'page': 1,
+				'page_size': 20,
+				'total_pages': 1,
+				'query': 'history',
+				'fts_weight': 0.7,
+				'popularity_weight': 0.3,
+			},
+			{
+				'Exact History Match': {'title': 'Exact History Match'},
+				'Well Rated History Book': {'title': 'Well Rated History Book'},
+			},
+		)
+
+		self.assertEqual([item['title'] for item in fts_response.data['results']], ['Exact History Match', 'Well Rated History Book'])
+		self.assertEqual([item['title'] for item in hybrid_response.data['results']], ['Well Rated History Book', 'Exact History Match'])
+		self.assertNotEqual(
+			[item['title'] for item in fts_response.data['results']],
+			[item['title'] for item in hybrid_response.data['results']]
+		)
+
+	def test_hybrid_popularity_weight_is_forwarded(self):
+		books = SearchQuerySet([
+			SimpleNamespace(title='Popular Science', rank=0.8123, upvote_count=220, downvote_count=18),
+			SimpleNamespace(title='Obscure Science', rank=0.9932, upvote_count=3, downvote_count=1),
+		])
+		response = self._run_hybrid_search(
+			'/api/books/hybrid-search/?q=science&fts_weight=0.3&popularity_weight=0.7',
+			books,
+			{
+				'results': [(books[0], 0.0312), (books[1], 0.0308)],
+				'count': 2,
+				'page': 1,
+				'page_size': 20,
+				'total_pages': 1,
+				'query': 'science',
+				'fts_weight': 0.3,
+				'popularity_weight': 0.7,
+			},
+			{
+				'Popular Science': {'title': 'Popular Science'},
+				'Obscure Science': {'title': 'Obscure Science'},
+			},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data['fts_weight'], 0.3)
+		self.assertEqual(response.data['popularity_weight'], 0.7)
+		self.assertEqual(response.data['results'][0]['title'], 'Popular Science')
+
+	def test_hybrid_pure_relevance_weights_are_forwarded(self):
+		books = SearchQuerySet([
+			SimpleNamespace(title='Science Primer', rank=0.9955, upvote_count=5, downvote_count=1),
+			SimpleNamespace(title='Science Anthology', rank=0.7821, upvote_count=140, downvote_count=10),
+		])
+		response = self._run_hybrid_search(
+			'/api/books/hybrid-search/?q=science&fts_weight=1.0&popularity_weight=0.0',
+			books,
+			{
+				'results': [(books[0], 0.0320), (books[1], 0.0302)],
+				'count': 2,
+				'page': 1,
+				'page_size': 20,
+				'total_pages': 1,
+				'query': 'science',
+				'fts_weight': 1.0,
+				'popularity_weight': 0.0,
+			},
+			{
+				'Science Primer': {'title': 'Science Primer'},
+				'Science Anthology': {'title': 'Science Anthology'},
+			},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data['search_type'], 'hybrid_rrf')
+		self.assertEqual(response.data['fts_weight'], 1.0)
+		self.assertEqual(response.data['popularity_weight'], 0.0)
+		self.assertEqual([item['title'] for item in response.data['results']], ['Science Primer', 'Science Anthology'])
+
+	def test_hybrid_genre_filter_applies_and_returns_hybrid_results(self):
+		books = SearchQuerySet([
+			SimpleNamespace(title='Mystery Detective', genre='Mystery', rank=0.9222, upvote_count=80, downvote_count=12),
+		])
+		response = self._run_hybrid_search(
+			'/api/books/hybrid-search/?q=detective&genre=mystery',
+			books,
+			{
+				'results': [(books[0], 0.0297)],
+				'count': 1,
+				'page': 1,
+				'page_size': 20,
+				'total_pages': 1,
+				'query': 'detective',
+				'fts_weight': 0.7,
+				'popularity_weight': 0.3,
+			},
+			{
+				'Mystery Detective': {'title': 'Mystery Detective', 'genre': 'Mystery'},
+			},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data['search_type'], 'hybrid_rrf')
+		self.assertEqual(response.data['results'][0]['genre'], 'Mystery')
+
+	def test_hybrid_missing_query_returns_400(self):
+		request = self.factory.get('/api/books/hybrid-search/')
+		response = BookViewSet.as_view({'get': 'hybrid_search'})(request)
+
+		self.assertEqual(response.status_code, 400)
+		self.assertIn('required', response.data['detail'])
+
+	def test_hybrid_invalid_weight_returns_400(self):
+		request = self.factory.get('/api/books/hybrid-search/?q=fiction&fts_weight=2.5')
+		response = BookViewSet.as_view({'get': 'hybrid_search'})(request)
+
+		self.assertEqual(response.status_code, 400)
+		self.assertIn('between 0.0 and 1.0', response.data['detail'])
+
+	def test_hybrid_pagination_returns_requested_page(self):
+		books = SearchQuerySet([
+			SimpleNamespace(title=f'Love Book {index}', rank=0.9 - (index * 0.01), upvote_count=50 + index, downvote_count=5)
+			for index in range(5)
+		])
+		response = self._run_hybrid_search(
+			'/api/books/hybrid-search/?q=love&page=2&page_size=5',
+			books,
+			{
+				'results': [(book, round(0.03 - (index * 0.001), 4)) for index, book in enumerate(books)],
+				'count': 10,
+				'page': 2,
+				'page_size': 5,
+				'total_pages': 2,
+				'query': 'love',
+				'fts_weight': 0.7,
+				'popularity_weight': 0.3,
+			},
+			{book.title: {'title': book.title} for book in books},
+		)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data['page'], 2)
+		self.assertEqual(response.data['page_size'], 5)
+		self.assertEqual(response.data['total_pages'], 2)
+		self.assertEqual(len(response.data['results']), 5)
 
 	def test_genre_filter_returns_matching_books(self):
 		request = self.factory.get('/api/books/search/?genre=fiction')

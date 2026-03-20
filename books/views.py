@@ -16,6 +16,8 @@ from django_filters.rest_framework import DjangoFilterBackend
 from .filters import BookFilter
 from .pagination import BookPagination
 
+from books.services.search import wilson_score_lower_bound
+
 
 class BookViewSet(viewsets.ModelViewSet):
     queryset = Book.objects.select_related('created_by').all()
@@ -248,6 +250,107 @@ class BookViewSet(viewsets.ModelViewSet):
 
         serializer = BookListSerializer(results_qs, many=True)
         return Response(serializer.data)
+
+    @action(
+        detail=False,
+        methods=['get'],
+        permission_classes=[AllowAny],
+        url_path='hybrid-search'
+    )
+    def hybrid_search(self, request):
+        """
+        GET /api/books/hybrid-search/?q=gatsby
+
+        Blends PostgreSQL FTS (relevance) with Wilson Score popularity
+        using Reciprocal Rank Fusion (Cormack et al., 2009).
+
+        RRF score = fts_weight*(1/(k+fts_rank)) + pop_weight*(1/(k+pop_rank))
+        where k=60 (standard constant).
+
+        Additional params:
+        fts_weight       — float 0.0–1.0, default 0.7
+        popularity_weight — float 0.0–1.0, default 0.3
+        page, page_size  — pagination
+        All BookFilter params also supported
+        """
+        from books.services.search import hybrid_search as run_hybrid_search
+
+        raw_query = request.GET.get('q', '').strip()
+
+        if not raw_query:
+            return Response(
+                {
+                    'error': True,
+                    'status_code': 400,
+                    'detail': 'A search query (?q=) is required for hybrid search.'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Parse weights from query params
+        try:
+            fts_weight = float(request.GET.get('fts_weight', 0.7))
+            popularity_weight = float(request.GET.get('popularity_weight', 0.3))
+            if not (0.0 <= fts_weight <= 1.0 and 0.0 <= popularity_weight <= 1.0):
+                raise ValueError
+        except ValueError:
+            return Response(
+                {
+                    'error': True,
+                    'status_code': 400,
+                    'detail': 'fts_weight and popularity_weight must be floats between 0.0 and 1.0.'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Apply non-search filters
+        base_qs = Book.objects.select_related('created_by').all()
+        filterset = BookFilter(request.GET, queryset=base_qs)
+        if not filterset.is_valid():
+            return Response(
+                {'error': True, 'status_code': 400, 'detail': filterset.errors},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            page = max(1, int(request.GET.get('page', 1)))
+            page_size = min(100, max(1, int(request.GET.get('page_size', 20))))
+        except ValueError:
+            page, page_size = 1, 20
+
+        result = run_hybrid_search(
+            raw_query=raw_query,
+            queryset=filterset.qs,
+            page=page,
+            page_size=page_size,
+            fts_weight=fts_weight,
+            popularity_weight=popularity_weight,
+        )
+
+        # Serialise results
+        serialised_results = []
+        for book, rrf_score in result['results']:
+            data = BookListSerializer(book).data
+            data['rrf_score'] = rrf_score
+            data['wilson_score'] = wilson_score_lower_bound(
+                book.upvote_count,
+                book.upvote_count + book.downvote_count
+            )
+            if hasattr(book, 'rank'):
+                data['fts_rank'] = round(float(book.rank), 4)
+            serialised_results.append(data)
+
+        return Response({
+            'query': result['query'],
+            'count': result['count'],
+            'page': result['page'],
+            'page_size': result['page_size'],
+            'total_pages': result['total_pages'],
+            'fts_weight': result['fts_weight'],
+            'popularity_weight': result['popularity_weight'],
+            'search_type': 'hybrid_rrf',
+            'results': serialised_results,
+        })
 
 
 
