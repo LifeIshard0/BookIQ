@@ -45,7 +45,85 @@ BookIQ provides full CRUD, PostgreSQL full-text search with GIN indexing, hybrid
 
 ## Architecture
 
-<img width="2160" height="1129" alt="image" src="https://github.com/user-attachments/assets/8ece68ba-34ce-4b4b-958d-0f3c8ca65c38" />
+```
+COMP3011-Web-Services-and-Web-Data-CW1/
+├── bookiq/
+│   ├── __init__.py
+│   ├── asgi.py
+│   ├── settings.py
+│   ├── settings_production.py
+│   ├── urls.py
+│   └── wsgi.py
+├── books/
+│   ├── __init__.py
+│   ├── admin.py
+│   ├── apps.py
+│   ├── exceptions.py
+│   ├── filters.py
+│   ├── models.py
+│   ├── pagination.py
+│   ├── permissions.py
+│   ├── serializers.py
+│   ├── urls.py
+│   ├── urls_analytics.py
+│   ├── views.py
+│   ├── views_analytics.py
+│   ├── management/
+│   │   └── commands/
+│   │       ├── build_search_index.py
+│   │       └── import_books.py
+│   ├── migrations/
+│   │   ├── 0001_initial.py
+│   │   ├── 0002_remove_embedding_field.py
+│   │   └── 0003_add_search_vector_gin_index.py
+│   ├── services/
+│   │   ├── analytics.py
+│   │   ├── cleaning.py
+│   │   ├── importer.py
+│   │   ├── recommender.py
+│   │   └── search.py
+│   └── tests/
+│       ├── test_analytics.py
+│       ├── test_auth.py
+│       ├── test_books.py
+│       ├── test_cleaning.py
+│       ├── test_exceptions.py
+│       ├── test_filters.py
+│       ├── test_imports.py
+│       ├── test_mcp_server.py
+│       ├── test_models.py
+│       ├── test_permissions.py
+│       ├── test_recommender.py
+│       ├── test_search.py
+│       ├── test_serializers.py
+│       ├── test_service_logic.py
+│       └── test_view_helpers.py
+├── users/
+│   ├── __init__.py
+│   ├── admin.py
+│   ├── apps.py
+│   ├── models.py
+│   ├── serializers.py
+│   ├── tests.py
+│   ├── urls.py
+│   ├── views.py
+│   └── migrations/
+│       └── 0001_initial.py
+├── data/
+│   ├── README.md
+│   └── books.csv
+├── docs/
+│   ├── schema.json
+│   └── schema.yml
+├── bookiq_mcp_server.py
+├── manage.py
+├── Procfile
+├── pytest.ini
+├── railway.toml
+├── README.md
+├── requirements.txt
+└── schema.yml
+```
 
 ---
 
