@@ -3,6 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticatedOrReadOnly, AllowAny
 from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404
 from django.db import IntegrityError
 
@@ -12,18 +13,41 @@ from .permissions import IsCuratorOrAbove, IsAdminRole, IsReaderOrAbove
 
 from books.services.importer import process_csv_import
 
+from django_filters.rest_framework import DjangoFilterBackend
+from .filters import BookFilter
+from .pagination import BookPagination
+
 
 class BookViewSet(viewsets.ModelViewSet):
     queryset = Book.objects.select_related('created_by').all()
-    filter_backends = [filters.OrderingFilter, filters.SearchFilter]
+    pagination_class = BookPagination
+    filter_backends = [
+        DjangoFilterBackend,
+        filters.OrderingFilter,
+        filters.SearchFilter,
+    ]
+    filterset_class = BookFilter
     search_fields = ['title', 'author', 'genre', 'isbn_13']
     ordering_fields = [
-        'created_at', 'average_rating',
-        'quality_score', 'published_year', 'rating_count'
+        'created_at', 'average_rating', 'quality_score',
+        'published_year', 'rating_count', 'title'
     ]
     ordering = ['-created_at']
 
+    def _guard_flagged_filter_access(self):
+        is_flagged = self.request.query_params.get('is_flagged')
+        if is_flagged is None:
+            return
+
+        user = getattr(self.request, 'user', None)
+        if user is None:
+            raise PermissionDenied('Curator or Admin role required.')
+
+        if not IsCuratorOrAbove().has_permission(self.request, self):
+            raise PermissionDenied('Curator or Admin role required.')
+
     def get_queryset(self):
+        self._guard_flagged_filter_access()
         queryset = super().get_queryset()
         is_flagged = self.request.query_params.get('is_flagged')
 
@@ -146,6 +170,84 @@ class BookViewSet(viewsets.ModelViewSet):
                 },
                 status=status.HTTP_404_NOT_FOUND
             )
+    
+    @action(
+        detail=False,
+        methods=['get'],
+        permission_classes=[AllowAny],
+        url_path='search'
+    )
+    def search(self, request):
+        """
+        GET /api/books/search/?q=gatsby&genre=fiction&min_quality=0.8
+
+        Keyword search across normalized_title, normalized_author,
+        genre, description, isbn_13 with additional filters.
+
+        Supported params:
+        q              — keyword (searches title, author, genre, description, isbn)
+        genre          — partial genre match
+        author         — partial author match
+        language       — exact language code (e.g. 'en')
+        publisher      — partial publisher match
+        is_flagged     — true/false
+        min_quality    — float 0.0–1.0
+        max_quality    — float 0.0–1.0
+        min_rating     — float 1–5
+        published_after  — integer year
+        published_before — integer year
+        ordering       — field name (prefix with - for descending)
+        page           — page number
+        page_size      — results per page (max 100)
+        """
+        if request.GET.get('is_flagged') is not None and not IsCuratorOrAbove().has_permission(request, self):
+            raise PermissionDenied('Curator or Admin role required.')
+
+        queryset = Book.objects.select_related('created_by').all()
+
+        # Apply filters
+        filterset = BookFilter(request.GET, queryset=queryset)
+        if not filterset.is_valid():
+            return Response(
+                {
+                    'error': True,
+                    'status_code': 400,
+                    'detail': filterset.errors
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        queryset = filterset.qs
+
+        # Apply ordering
+        ordering = request.GET.get('ordering', '-average_rating')
+        allowed_orderings = [
+            'created_at', '-created_at',
+            'average_rating', '-average_rating',
+            'quality_score', '-quality_score',
+            'published_year', '-published_year',
+            'rating_count', '-rating_count',
+            'title', '-title',
+        ]
+        if ordering in allowed_orderings:
+            queryset = queryset.order_by(ordering)
+        else:
+            queryset = queryset.order_by('-average_rating')
+
+        # Paginate
+        paginator = BookPagination()
+        page = paginator.paginate_queryset(queryset, request)
+        if page is not None:
+            serializer = BookListSerializer(page, many=True)
+            response = paginator.get_paginated_response(serializer.data)
+            response.data['query'] = request.GET.get('q', '')
+            response.data['filters_applied'] = {
+                k: v for k, v in request.GET.items()
+                if k not in ('page', 'page_size', 'ordering')
+            }
+            return response
+
+        serializer = BookListSerializer(queryset, many=True)
+        return Response(serializer.data)
 
 
 class ImportJobViewSet(viewsets.GenericViewSet):

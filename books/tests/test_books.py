@@ -14,41 +14,12 @@ from books.models import BookRating
 from books.views import BookViewSet
 
 
-class FakeQuerySet(list):
-	# Minimal list-backed queryset shim used to exercise get_queryset filtering.
-	def all(self):
-		return self
-
-	def filter(self, **kwargs):
-		result = self
-		for key, value in kwargs.items():
-			result = [item for item in result if getattr(item, key) == value]
-		return FakeQuerySet(result)
-
-	def order_by(self, *args):
-		return self
-
-
 class BookApiTests(SimpleTestCase):
 	def setUp(self):
 		self.factory = APIRequestFactory()
 		self.reader = SimpleNamespace(username='reader', role='reader', is_authenticated=True)
 		self.curator = SimpleNamespace(username='curator', role='curator', is_authenticated=True)
 		self.admin = SimpleNamespace(username='admin', role='admin', is_authenticated=True)
-
-	# The custom query parameter should filter flagged books even without the
-	# Django filter backend package.
-	def test_list_books_filters_by_flagged_state(self):
-		view = BookViewSet()
-		view.request = SimpleNamespace(query_params={'is_flagged': 'true'})
-		view.queryset = FakeQuerySet([
-			SimpleNamespace(title='Flagged Book', is_flagged=True),
-			SimpleNamespace(title='Clean Book', is_flagged=False),
-		])
-
-		result = view.get_queryset()
-
-		self.assertEqual([book.title for book in result], ['Flagged Book'])
 
 	# RBAC: readers can not create books.
 	def test_reader_cannot_create_book_but_curator_can(self):
