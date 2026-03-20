@@ -29,7 +29,7 @@ SECRET_KEY = os.environ['DJANGO_SECRET_KEY']
 
 ALLOWED_HOSTS = os.environ.get(
     'ALLOWED_HOSTS',
-    'localhost'
+    '*'
 ).split(',')
 
 # ─── Database ──────────────────────────────────────────
@@ -62,7 +62,7 @@ MIDDLEWARE = [
 # ─── Security ──────────────────────────────────────────
 
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-SECURE_SSL_REDIRECT = True
+SECURE_SSL_REDIRECT = False
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 SECURE_HSTS_SECONDS = 31536000
