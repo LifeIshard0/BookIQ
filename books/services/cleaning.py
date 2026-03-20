@@ -243,8 +243,7 @@ def compute_quality_score(
     Returns float in [0.0, 1.0].
     """
     key_fields = [
-        'title', 'author', 'isbn_13', 'description',
-        'genre', 'published_year', 'publisher', 'page_count'
+        'description', 'published_year', 'publisher', 'page_count', 'cover_url'
     ]
     filled = sum(
         1 for f in key_fields
@@ -252,7 +251,7 @@ def compute_quality_score(
     )
     completeness = filled / len(key_fields)
     isbn_score = 1.0 if isbn_valid else 0.0
-    score = (completeness * 0.3) + (isbn_score * 0.5) + (genre_confidence * 0.2)
+    score = (completeness * 0.5) + (isbn_score * 0.3) + (genre_confidence * 0.2)
     return round(min(max(score, 0.0), 1.0), 3)
 
 
