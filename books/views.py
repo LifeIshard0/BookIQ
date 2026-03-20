@@ -11,12 +11,11 @@ from .serializers import BookSerializer, BookListSerializer, BookRatingSerialize
 from .permissions import IsCuratorOrAbove, IsAdminRole, IsReaderOrAbove
 
 from books.services.importer import process_csv_import
+from books.services.search import wilson_score_lower_bound
 
 from django_filters.rest_framework import DjangoFilterBackend
 from .filters import BookFilter
 from .pagination import BookPagination
-
-from books.services.search import wilson_score_lower_bound
 
 from drf_spectacular.utils import (
     extend_schema,

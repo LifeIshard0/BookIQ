@@ -2,12 +2,14 @@ import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from django.core.exceptions import ObjectDoesNotExist, PermissionDenied as DjangoPermissionDenied, ValidationError as DjangoValidationError
 from django.http import Http404
 from django.db import IntegrityError
 from django.test import Client, RequestFactory, SimpleTestCase
 from rest_framework.test import APIRequestFactory, force_authenticate
+from rest_framework.exceptions import AuthenticationFailed, NotAuthenticated, PermissionDenied as DRFPermissionDenied
 
-from books.exceptions import handler_500
+from books.exceptions import _make_error_response, global_exception_handler, handler_404, handler_500
 from books.views import BookViewSet
 
 
@@ -202,3 +204,103 @@ class ExceptionEnvelopeTests(SimpleTestCase):
 				'detail': 'Internal server error. Please try again later.',
 			}
 		)
+
+	def test_make_error_response_includes_extra_fields(self):
+		response = _make_error_response('boom', 418, extra={'hint': 'teapot'})
+
+		self.assertEqual(response.status_code, 418)
+		self.assertEqual(response.data['detail'], 'boom')
+		self.assertEqual(response.data['hint'], 'teapot')
+
+	def test_global_exception_handler_formats_drf_permission_denied(self):
+		request = self.request_factory.get('/api/books/')
+		view = SimpleNamespace(__class__=SimpleNamespace(__name__='BookViewSet'))
+
+		with patch('books.exceptions.drf_exception_handler', return_value=SimpleNamespace(data={'detail': 'denied'}, status_code=403)):
+			response = global_exception_handler(DRFPermissionDenied(), {'request': request, 'view': view})
+
+		self.assertEqual(response.status_code, 403)
+		self.assertEqual(response.data['detail'], 'You do not have permission to perform this action.')
+
+	def test_global_exception_handler_unwraps_401_detail(self):
+		request = self.request_factory.get('/api/books/')
+		view = SimpleNamespace(__class__=SimpleNamespace(__name__='BookViewSet'))
+
+		with patch('books.exceptions.drf_exception_handler', return_value=SimpleNamespace(data={'detail': 'Missing token'}, status_code=401)):
+			response = global_exception_handler(NotAuthenticated(), {'request': request, 'view': view})
+
+		self.assertEqual(response.status_code, 401)
+		self.assertEqual(response.data['detail'], 'Missing token')
+
+	def test_global_exception_handler_preserves_extra_detail_fields(self):
+		request = self.request_factory.get('/api/books/')
+		view = SimpleNamespace(__class__=SimpleNamespace(__name__='BookViewSet'))
+
+		with patch('books.exceptions.drf_exception_handler', return_value=SimpleNamespace(data={'detail': 'Bad', 'code': 'invalid'}, status_code=400)):
+			response = global_exception_handler(AuthenticationFailed('Bad'), {'request': request, 'view': view})
+
+		self.assertEqual(response.status_code, 400)
+		self.assertEqual(response.data['detail']['detail'], 'Bad')
+		self.assertEqual(response.data['detail']['code'], 'invalid')
+
+	def test_global_exception_handler_handles_django_http_404(self):
+		request = self.request_factory.get('/api/books/missing/')
+		view = SimpleNamespace(__class__=SimpleNamespace(__name__='BookViewSet'))
+
+		with patch('books.exceptions.drf_exception_handler', return_value=None):
+			response = global_exception_handler(Http404('Nope'), {'request': request, 'view': view})
+
+		self.assertEqual(response.status_code, 404)
+		self.assertEqual(response.data['detail'], 'Nope')
+
+	def test_global_exception_handler_handles_django_permission_denied(self):
+		request = self.request_factory.get('/api/books/')
+		view = SimpleNamespace(__class__=SimpleNamespace(__name__='BookViewSet'))
+
+		with patch('books.exceptions.drf_exception_handler', return_value=None):
+			response = global_exception_handler(DjangoPermissionDenied(), {'request': request, 'view': view})
+
+		self.assertEqual(response.status_code, 403)
+		self.assertEqual(response.data['detail'], 'You do not have permission to perform this action.')
+
+	def test_global_exception_handler_handles_django_validation_error(self):
+		request = self.request_factory.get('/api/books/')
+		view = SimpleNamespace(__class__=SimpleNamespace(__name__='BookViewSet'))
+		validation_error = DjangoValidationError({'title': ['required']})
+
+		with patch('books.exceptions.drf_exception_handler', return_value=None):
+			response = global_exception_handler(validation_error, {'request': request, 'view': view})
+
+		self.assertEqual(response.status_code, 400)
+		self.assertEqual(response.data['detail'], {'title': ['required']})
+
+	def test_global_exception_handler_handles_django_object_does_not_exist(self):
+		request = self.request_factory.get('/api/books/')
+		view = SimpleNamespace(__class__=SimpleNamespace(__name__='BookViewSet'))
+
+		with patch('books.exceptions.drf_exception_handler', return_value=None):
+			response = global_exception_handler(ObjectDoesNotExist('Missing object'), {'request': request, 'view': view})
+
+		self.assertEqual(response.status_code, 404)
+		self.assertEqual(response.data['detail'], 'Missing object')
+
+	def test_global_exception_handler_falls_back_to_500_for_unhandled_errors(self):
+		request = self.request_factory.get('/api/books/')
+		view = SimpleNamespace(__class__=SimpleNamespace(__name__='BookViewSet'))
+
+		with patch('books.exceptions.drf_exception_handler', return_value=None):
+			response = global_exception_handler(RuntimeError('boom'), {'request': request, 'view': view})
+
+		self.assertEqual(response.status_code, 500)
+		self.assertEqual(response.data['detail'], 'An unexpected error occurred. Please try again later.')
+
+	def test_handler404_returns_json_envelope(self):
+		request = self.request_factory.get('/api/missing/')
+		response = handler_404(request)
+
+		self.assertEqual(response.status_code, 404)
+		self.assertEqual(json.loads(response.content), {
+			'error': True,
+			'status_code': 404,
+			'detail': 'Endpoint not found: /api/missing/',
+		})

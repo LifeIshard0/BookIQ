@@ -5,7 +5,9 @@ attrs==26.1.0
 certifi==2026.2.25
 cffi==2.0.0
 click==8.3.1
+coverage==7.13.5
 cryptography==46.0.5
+dj-database-url==3.1.2
 Django==6.0.3
 django-cors-headers==4.9.0
 django-filter==25.2
@@ -13,6 +15,7 @@ djangorestframework==3.17.0
 djangorestframework_simplejwt==5.5.1
 drf-spectacular==0.29.0
 Faker==40.11.0
+gunicorn==25.1.0
 h11==0.16.0
 httpcore==1.0.9
 httpx==0.28.1
@@ -33,6 +36,7 @@ pydantic_core==2.41.5
 Pygments==2.19.2
 PyJWT==2.12.1
 pytest==9.0.2
+pytest-cov==7.0.0
 pytest-django==4.12.0
 python-dotenv==1.2.2
 python-multipart==0.0.22
@@ -47,3 +51,4 @@ typing-inspection==0.4.2
 typing_extensions==4.15.0
 uritemplate==4.2.0
 uvicorn==0.42.0
+whitenoise==6.12.0

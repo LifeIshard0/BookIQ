@@ -1,6 +1,7 @@
 """Importer tests for stream handling, malformed uploads, and duplicate rows."""
 
 from pathlib import Path
+import io
 from tempfile import NamedTemporaryFile
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -61,6 +62,7 @@ class FakeBookFactory:
 		return SimpleNamespace(**kwargs)
 
 
+
 class ImportTests(SimpleTestCase):
 	def setUp(self):
 		self.factory = APIRequestFactory()
@@ -76,6 +78,40 @@ class ImportTests(SimpleTestCase):
 				self.assertEqual(stream.readline(), 'title,authors\n')
 		finally:
 			temp_path.unlink(missing_ok=True)
+
+	def test_open_csv_text_stream_rejects_invalid_source(self):
+		with self.assertRaises(TypeError):
+			_open_csv_text_stream(123)
+
+	def test_open_csv_text_stream_handles_bytes_and_binary_file_like(self):
+		with _open_csv_text_stream(b'title,authors\nTest Book,Test Author\n') as stream:
+			self.assertEqual(stream.readline(), 'title,authors\n')
+
+		binary_source = io.BytesIO(b'title,authors\nAnother Book,Another Author\n')
+		binary_source.mode = 'rb'
+		with _open_csv_text_stream(binary_source) as stream:
+			self.assertEqual(stream.readline(), 'title,authors\n')
+
+	def test_open_csv_text_stream_returns_text_file_like_unchanged(self):
+		class TextSource(io.StringIO):
+			mode = 'r'
+
+		text_source = TextSource('title,authors\nText Book,Text Author\n')
+
+		self.assertIs(_open_csv_text_stream(text_source), text_source)
+
+	def test_coerce_types_drops_invalid_integer_fields(self):
+		self.assertEqual(
+			process_csv_import.__globals__['_coerce_types']({
+				'published_year': 'not-a-number',
+				'page_count': 'also-bad',
+				'title': 'Test',
+			}),
+			{'title': 'Test'}
+		)
+
+	def test_truncate_for_book_field_returns_none_for_none_value(self):
+		self.assertIsNone(process_csv_import.__globals__['_truncate_for_book_field'](None, 'title'))
 
 	# Valid CSV rows should update the job counters and call bulk_create once.
 	def test_process_csv_import_streams_rows_and_updates_job(self):
@@ -136,6 +172,141 @@ class ImportTests(SimpleTestCase):
 			self.assertEqual(mock_pipeline.call_count, 2)
 			self.assertIn('duplicate_candidates', mock_pipeline.call_args_list[0].kwargs)
 			self.assertEqual(mock_pipeline.call_args_list[0].kwargs['duplicate_candidates'], [])
+		finally:
+			temp_path.unlink(missing_ok=True)
+
+	def test_process_csv_import_handles_csv_parse_failure(self):
+		fake_job = SimpleNamespace(
+			status='pending',
+			file_name='',
+			total_rows=0,
+			cleaned_count=0,
+			duplicate_count=0,
+			failed_count=0,
+			error_log=[],
+			completed_at=None,
+			save=MagicMock(),
+		)
+		fake_import_job_model = SimpleNamespace(Status=SimpleNamespace(PROCESSING='processing', FAILED='failed'))
+
+		with patch('books.services.importer._open_csv_text_stream', side_effect=ValueError('bad csv')), \
+			 patch('books.services.importer.ImportJob', fake_import_job_model):
+			result = process_csv_import('broken.csv', 'broken.csv', SimpleNamespace(username='admin'), fake_job)
+
+		self.assertIs(result, fake_job)
+		self.assertEqual(fake_job.status, 'failed')
+		self.assertIn('Failed to parse CSV', fake_job.error_log[0]['error'])
+
+	def test_process_csv_import_records_pipeline_exception_as_failed_row(self):
+		with NamedTemporaryFile('w', encoding='utf-8', newline='', suffix='.csv', delete=False) as temp_file:
+			temp_file.write('title,authors,isbn13\nBroken Row,Author One,9780306406157\n')
+			temp_path = Path(temp_file.name)
+
+		fake_job = SimpleNamespace(
+			status='pending',
+			file_name='',
+			total_rows=0,
+			cleaned_count=0,
+			duplicate_count=0,
+			failed_count=0,
+			error_log=[],
+			completed_at=None,
+			save=MagicMock(),
+		)
+		fake_statuses = SimpleNamespace(PROCESSING='processing', COMPLETED='completed', FAILED='failed')
+		fake_import_job_model = SimpleNamespace(Status=fake_statuses)
+		fake_manager = FakeBookManager()
+		fake_book_factory = FakeBookFactory(fake_manager)
+
+		try:
+			with patch('books.services.importer.Book', fake_book_factory), \
+				 patch('books.services.importer.ImportJob', fake_import_job_model), \
+				 patch('books.services.importer.run_cleaning_pipeline', side_effect=RuntimeError('pipeline exploded')):
+				result = process_csv_import(temp_path, 'broken-row.csv', SimpleNamespace(username='admin'), fake_job)
+
+			self.assertIs(result, fake_job)
+			self.assertEqual(fake_job.failed_count, 1)
+			self.assertEqual(fake_job.cleaned_count, 0)
+			self.assertIn('pipeline exploded', fake_job.error_log[0]['error'])
+		finally:
+			temp_path.unlink(missing_ok=True)
+
+	def test_process_csv_import_counts_rows_missing_required_fields(self):
+		with NamedTemporaryFile('w', encoding='utf-8', newline='', suffix='.csv', delete=False) as temp_file:
+			temp_file.write('title,authors,isbn13\n,Missing Author,9780306406157\n')
+			temp_path = Path(temp_file.name)
+
+		fake_job = SimpleNamespace(
+			status='pending',
+			file_name='',
+			total_rows=0,
+			cleaned_count=0,
+			duplicate_count=0,
+			failed_count=0,
+			error_log=[],
+			completed_at=None,
+			save=MagicMock(),
+		)
+		fake_statuses = SimpleNamespace(PROCESSING='processing', COMPLETED='completed', FAILED='failed')
+		fake_import_job_model = SimpleNamespace(Status=fake_statuses)
+		fake_manager = FakeBookManager()
+		fake_book_factory = FakeBookFactory(fake_manager)
+
+		try:
+			with patch('books.services.importer.Book', fake_book_factory), \
+				 patch('books.services.importer.ImportJob', fake_import_job_model), \
+				 patch('books.services.importer.run_cleaning_pipeline') as mock_pipeline:
+				result = process_csv_import(temp_path, 'missing.csv', SimpleNamespace(username='admin'), fake_job)
+
+			self.assertIs(result, fake_job)
+			self.assertEqual(fake_job.failed_count, 1)
+			self.assertEqual(fake_job.cleaned_count, 0)
+			mock_pipeline.assert_not_called()
+		finally:
+			temp_path.unlink(missing_ok=True)
+
+	def test_process_csv_import_triggers_batch_bulk_create(self):
+		with NamedTemporaryFile('w', encoding='utf-8', newline='', suffix='.csv', delete=False) as temp_file:
+			temp_file.write('title,authors,isbn13\nBatch One,Author One,9780306406157\nBatch Two,Author Two,9780306406158\n')
+			temp_path = Path(temp_file.name)
+
+		fake_job = SimpleNamespace(
+			status='pending',
+			file_name='',
+			total_rows=0,
+			cleaned_count=0,
+			duplicate_count=0,
+			failed_count=0,
+			error_log=[],
+			completed_at=None,
+			save=MagicMock(),
+		)
+		fake_statuses = SimpleNamespace(PROCESSING='processing', COMPLETED='completed', FAILED='failed')
+		fake_import_job_model = SimpleNamespace(Status=fake_statuses)
+		fake_manager = FakeBookManager()
+		fake_book_factory = FakeBookFactory(fake_manager)
+
+		try:
+			with patch('books.services.importer.Book', fake_book_factory), \
+				 patch('books.services.importer.ImportJob', fake_import_job_model), \
+				 patch('books.services.importer.run_cleaning_pipeline') as mock_pipeline, \
+				 patch('books.services.importer.BATCH_SIZE', 1), \
+				 patch('books.services.importer.timezone.now', return_value='now'):
+				mock_pipeline.side_effect = lambda data, **kwargs: {
+					**data,
+					'genre': data.get('genre', 'Fantasy'),
+					'normalized_title': data['title'],
+					'normalized_author': data['author'],
+					'genre_confidence': 1.0,
+					'quality_score': 1.0,
+					'is_flagged': False,
+				}
+
+				result = process_csv_import(temp_path, 'batch.csv', SimpleNamespace(username='admin'), fake_job)
+
+			self.assertIs(result, fake_job)
+			self.assertGreaterEqual(fake_manager.bulk_create.call_count, 2)
+			self.assertEqual(fake_job.cleaned_count, 2)
 		finally:
 			temp_path.unlink(missing_ok=True)
 
