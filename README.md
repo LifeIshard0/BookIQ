@@ -105,6 +105,15 @@ BookIQ provides full CRUD, PostgreSQL full-text search with GIN indexing, hybrid
 | `GET` | `/api/books/{id}/ratings/` | Public | List all ratings for a book |
 | `GET` | `/api/books/{id}/my-rating/` | Reader+ | Get own rating for a book |
 
+### User Ratings
+
+| Method | Endpoint | Access | Description |
+|---|---|---|---|
+| `GET` | `/api/ratings/` | Reader+ | List the authenticated user's ratings |
+| `GET` | `/api/ratings/{id}/` | Reader+ | Retrieve one of the authenticated user's ratings |
+| `PATCH` | `/api/ratings/{id}/` | Reader+ | Update one of the authenticated user's ratings |
+| `DELETE` | `/api/ratings/{id}/` | Reader+ | Delete one of the authenticated user's ratings |
+
 ### Recommendations
 
 | Method | Endpoint | Access | Description |
@@ -143,6 +152,7 @@ BookIQ provides full CRUD, PostgreSQL full-text search with GIN indexing, hybrid
 | `GET` | `/api/docs/` | Public | Swagger UI |
 | `GET` | `/api/redoc/` | Public | ReDoc |
 | `GET` | `/api/schema/` | Public | Raw OpenAPI 3.0 JSON |
+| `GET` | `/health/` | Public | Health check |
 
 ---
 
@@ -214,11 +224,11 @@ DATABASE_URL=postgresql://bookiq_user:yourpassword@localhost:5432/bookiq
 DEBUG=True
 ```
 
-### 4. Run migrations and seed data
+### 4. Run migrations and import data
 
 ```bash
 python manage.py migrate
-python manage.py seed_books --count 500
+python manage.py import_books data/books.csv --username=admin
 ```
 
 ### 5. Create an admin user
@@ -267,30 +277,56 @@ pytest books/tests/test_search.py -v
 
 | Module | Tests | Coverage areas |
 |---|---:|---|
-| `test_auth.py` | 14 | Registration, login, token refresh, profile |
-| `test_books.py` | 20 | CRUD, RBAC (reader/curator/admin), rating upsert |
-| `test_imports.py` | 10 | CSV upload, duplicate handling, RBAC |
-| `test_search.py` | 14 | FTS, hybrid RRF, filters, pagination |
+| `test_auth.py` | 9 | Registration, login, token refresh, profile |
+| `test_books.py` | 13 | CRUD, RBAC (reader/curator/admin), rating upsert |
+| `test_imports.py` | 17 | CSV upload, importer helpers, duplicate handling, RBAC |
+| `test_search.py` | 25 | FTS, hybrid RRF, filters, pagination |
+
+Additional test modules live under `books/tests/` for analytics, cleaning, exceptions, filters, MCP server, models, permissions, recommender logic, serializers, service logic, and view helpers.
 
 ---
 
 ## Data Import
 
-BookIQ accepts CSV files via the import endpoint. Required columns:
+BookIQ accepts CSV files via the import endpoint and the `import_books` management command.
 
-```text
-isbn_13, title, authors, genre, description, published_year, page_count
+Command-line import:
+
+```bash
+python manage.py import_books data/books.csv --username=admin
 ```
+
+The importer accepts these CSV column names and aliases:
+
+| CSV column | Maps to | Notes |
+|---|---|---|
+| `title` | `title` | Required |
+| `authors` / `author` | `author` | Required |
+| `isbn_13` / `isbn13` / `isbn` | `isbn_13` | Optional, validated when present |
+| `description` | `description` | Optional |
+| `genre` / `categories` | `genre` | Optional |
+| `published_year` | `published_year` | Optional |
+| `page_count` / `num_pages` | `page_count` | Optional |
+| `publisher` | `publisher` | Optional |
+| `thumbnail` / `cover_url` | `cover_url` | Optional |
+| `language` | `language` | Optional |
 
 The import pipeline processes each row through:
 
 1. Parse — validate CSV structure and required columns.
 2. Clean — normalise title casing, author name (Surname, First), strip whitespace.
 3. Validate ISBN — check ISBN-13 check digit.
-4. Deduplicate — skip rows where `isbn_13` already exists.
-5. Quality score — compute 0.0–1.0 completeness score.
-6. Flag — mark books with quality score < 0.5 for curator review.
-7. Persist — bulk insert valid rows.
+4. Infer genre — fill missing genres from description keywords.
+5. Detect duplicates — skip exact ISBN duplicates and reduce quality for likely fuzzy duplicates.
+6. Quality score — compute a weighted score from completeness, ISBN validity, and genre confidence.
+7. Flag — mark books with quality score < 0.8 for curator review.
+8. Persist — bulk insert valid rows.
+
+The quality score is weighted as follows:
+
+```text
+quality_score = 0.5 * completeness + 0.3 * isbn_validity + 0.2 * genre_confidence
+```
 
 ```bash
 # Via API (requires admin token)
@@ -402,10 +438,12 @@ Every book written to the database passes through a 7-step automated cleaning pi
 | 1 | Normalise title casing (title case, strip whitespace) |
 | 2 | Normalise author name to Surname, First format |
 | 3 | Validate and normalise ISBN-13 (check digit verification) |
-| 4 | Normalise genre (canonical mapping, title case) |
-| 5 | Clean description (strip HTML, collapse whitespace) |
-| 6 | Compute quality score (0.0–1.0 field completeness) |
-| 7 | Set `is_flagged = True` if quality score < 0.5 |
+| 4 | Infer genre from description keywords when no genre is supplied |
+| 5 | Detect likely duplicates with fuzzy title/author matching |
+| 6 | Compute quality score from completeness, ISBN validity, and genre confidence |
+| 7 | Set `is_flagged = True` if quality score < 0.8 |
+
+Likely duplicates are not rejected outright; instead, the quality score is reduced so they are more likely to be flagged for review.
 
 ---
 
