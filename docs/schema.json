@@ -185,6 +185,51 @@
             }
         },
         "/api/books/": {
+            "post": {
+                "operationId": "books_create",
+                "description": "Creates a new book. Runs the 7-step cleaning pipeline automatically. Curator+ only.",
+                "summary": "Create a book",
+                "tags": [
+                    "books"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BookRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BookRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BookRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Book"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
             "get": {
                 "operationId": "books_list",
                 "description": "Returns a paginated list of all books ordered by creation date. Supports filtering via BookFilter params.",
@@ -333,51 +378,6 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/PaginatedBookListList"
-                                }
-                            }
-                        },
-                        "description": ""
-                    }
-                }
-            },
-            "post": {
-                "operationId": "books_create",
-                "description": "Creates a new book. Runs the 7-step cleaning pipeline automatically. Curator+ only.",
-                "summary": "Create a book",
-                "tags": [
-                    "books"
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/BookRequest"
-                            }
-                        },
-                        "application/x-www-form-urlencoded": {
-                            "schema": {
-                                "$ref": "#/components/schemas/BookRequest"
-                            }
-                        },
-                        "multipart/form-data": {
-                            "schema": {
-                                "$ref": "#/components/schemas/BookRequest"
-                            }
-                        }
-                    },
-                    "required": true
-                },
-                "security": [
-                    {
-                        "jwtAuth": []
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/Book"
                                 }
                             }
                         },
@@ -627,10 +627,66 @@
             }
         },
         "/api/books/{id}/": {
-            "get": {
-                "operationId": "books_retrieve",
-                "description": "Returns full metadata for a single book by UUID.",
-                "summary": "Retrieve a book",
+            "patch": {
+                "operationId": "books_partial_update",
+                "description": "Partially updates a book record. Curator+ only.",
+                "summary": "Update a book",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this book.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "books"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedBookRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedBookRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedBookRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Book"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "books_destroy",
+                "description": "Permanently deletes a book. Admin only.",
+                "summary": "Delete a book",
                 "parameters": [
                     {
                         "in": "path",
@@ -649,19 +705,11 @@
                 "security": [
                     {
                         "jwtAuth": []
-                    },
-                    {}
+                    }
                 ],
                 "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/Book"
-                                }
-                            }
-                        },
-                        "description": ""
+                    "204": {
+                        "description": "No response body"
                     }
                 }
             },
@@ -720,10 +768,10 @@
                     }
                 }
             },
-            "delete": {
-                "operationId": "books_destroy",
-                "description": "Permanently deletes a book. Admin only.",
-                "summary": "Delete a book",
+            "get": {
+                "operationId": "books_retrieve",
+                "description": "Returns full metadata for a single book by UUID.",
+                "summary": "Retrieve a book",
                 "parameters": [
                     {
                         "in": "path",
@@ -742,56 +790,8 @@
                 "security": [
                     {
                         "jwtAuth": []
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No response body"
-                    }
-                }
-            },
-            "patch": {
-                "operationId": "books_partial_update",
-                "description": "Partially updates a book record. Curator+ only.",
-                "summary": "Update a book",
-                "parameters": [
-                    {
-                        "in": "path",
-                        "name": "id",
-                        "schema": {
-                            "type": "string",
-                            "format": "uuid"
-                        },
-                        "description": "A UUID string identifying this book.",
-                        "required": true
-                    }
-                ],
-                "tags": [
-                    "books"
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/PatchedBookRequest"
-                            }
-                        },
-                        "application/x-www-form-urlencoded": {
-                            "schema": {
-                                "$ref": "#/components/schemas/PatchedBookRequest"
-                            }
-                        },
-                        "multipart/form-data": {
-                            "schema": {
-                                "$ref": "#/components/schemas/PatchedBookRequest"
-                            }
-                        }
-                    }
-                },
-                "security": [
-                    {
-                        "jwtAuth": []
-                    }
+                    },
+                    {}
                 ],
                 "responses": {
                     "200": {
@@ -938,6 +938,30 @@
             }
         },
         "/api/imports/": {
+            "post": {
+                "operationId": "imports_create",
+                "description": "POST /api/imports/        — upload CSV, triggers import, returns job\nGET  /api/imports/        — list all import jobs (admin only)\nGET  /api/imports/{id}/   — check status of a specific import job",
+                "tags": [
+                    "imports"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ImportJob"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
             "get": {
                 "operationId": "imports_list",
                 "description": "POST /api/imports/        — upload CSV, triggers import, returns job\nGET  /api/imports/        — list all import jobs (admin only)\nGET  /api/imports/{id}/   — check status of a specific import job",
@@ -984,30 +1008,6 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/PaginatedImportJobList"
-                                }
-                            }
-                        },
-                        "description": ""
-                    }
-                }
-            },
-            "post": {
-                "operationId": "imports_create",
-                "description": "POST /api/imports/        — upload CSV, triggers import, returns job\nGET  /api/imports/        — list all import jobs (admin only)\nGET  /api/imports/{id}/   — check status of a specific import job",
-                "tags": [
-                    "imports"
-                ],
-                "security": [
-                    {
-                        "jwtAuth": []
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ImportJob"
                                 }
                             }
                         },
@@ -1110,8 +1110,8 @@
             }
         },
         "/api/ratings/{id}/": {
-            "get": {
-                "operationId": "ratings_retrieve",
+            "patch": {
+                "operationId": "ratings_partial_update",
                 "description": "Dedicated endpoints for a user's own ratings.\n\nGET  /api/ratings/           — list all of my ratings\nGET  /api/ratings/{id}/      — retrieve one of my ratings\nPATCH /api/ratings/{id}/     — update my rating\nDELETE /api/ratings/{id}/    — delete my rating",
                 "parameters": [
                     {
@@ -1128,6 +1128,25 @@
                 "tags": [
                     "ratings"
                 ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedBookRatingRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedBookRatingRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedBookRatingRequest"
+                            }
+                        }
+                    }
+                },
                 "security": [
                     {
                         "jwtAuth": []
@@ -1175,8 +1194,8 @@
                     }
                 }
             },
-            "patch": {
-                "operationId": "ratings_partial_update",
+            "get": {
+                "operationId": "ratings_retrieve",
                 "description": "Dedicated endpoints for a user's own ratings.\n\nGET  /api/ratings/           — list all of my ratings\nGET  /api/ratings/{id}/      — retrieve one of my ratings\nPATCH /api/ratings/{id}/     — update my rating\nDELETE /api/ratings/{id}/    — delete my rating",
                 "parameters": [
                     {
@@ -1193,25 +1212,6 @@
                 "tags": [
                     "ratings"
                 ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/PatchedBookRatingRequest"
-                            }
-                        },
-                        "application/x-www-form-urlencoded": {
-                            "schema": {
-                                "$ref": "#/components/schemas/PatchedBookRatingRequest"
-                            }
-                        },
-                        "multipart/form-data": {
-                            "schema": {
-                                "$ref": "#/components/schemas/PatchedBookRatingRequest"
-                            }
-                        }
-                    }
-                },
                 "security": [
                     {
                         "jwtAuth": []
@@ -1337,9 +1337,7 @@
                         "maxLength": 300
                     },
                     "isbn_13": {
-                        "type": "string",
-                        "nullable": true,
-                        "maxLength": 13
+                        "type": "string"
                     },
                     "description": {
                         "type": "string"
@@ -1441,6 +1439,7 @@
                     "genre_confidence",
                     "id",
                     "is_flagged",
+                    "isbn_13",
                     "normalized_author",
                     "normalized_title",
                     "quality_score",
@@ -1591,8 +1590,7 @@
                     },
                     "isbn_13": {
                         "type": "string",
-                        "nullable": true,
-                        "maxLength": 13
+                        "minLength": 1
                     },
                     "description": {
                         "type": "string"
@@ -1630,6 +1628,7 @@
                 },
                 "required": [
                     "author",
+                    "isbn_13",
                     "title"
                 ]
             },
@@ -1845,8 +1844,7 @@
                     },
                     "isbn_13": {
                         "type": "string",
-                        "nullable": true,
-                        "maxLength": 13
+                        "minLength": 1
                     },
                     "description": {
                         "type": "string"

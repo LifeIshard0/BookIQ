@@ -121,34 +121,6 @@ paths:
         '200':
           description: User profile data
   /api/books/:
-    post:
-      operationId: books_create
-      description: Creates a new book. Runs the 7-step cleaning pipeline automatically.
-        Curator+ only.
-      summary: Create a book
-      tags:
-      - books
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/BookRequest'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/BookRequest'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/BookRequest'
-        required: true
-      security:
-      - jwtAuth: []
-      responses:
-        '201':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Book'
-          description: ''
     get:
       operationId: books_list
       description: Returns a paginated list of all books ordered by creation date.
@@ -248,6 +220,34 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PaginatedBookListList'
+          description: ''
+    post:
+      operationId: books_create
+      description: Creates a new book. Runs the 7-step cleaning pipeline automatically.
+        Curator+ only.
+      summary: Create a book
+      tags:
+      - books
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BookRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BookRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BookRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Book'
           description: ''
   /api/books/hybrid-search/:
     get:
@@ -419,6 +419,25 @@ paths:
         '400':
           description: Invalid filter parameters
   /api/books/{id}/:
+    delete:
+      operationId: books_destroy
+      description: Permanently deletes a book. Admin only.
+      summary: Delete a book
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this book.
+        required: true
+      tags:
+      - books
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
     patch:
       operationId: books_partial_update
       description: Partially updates a book record. Curator+ only.
@@ -446,6 +465,30 @@ paths:
               $ref: '#/components/schemas/PatchedBookRequest'
       security:
       - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Book'
+          description: ''
+    get:
+      operationId: books_retrieve
+      description: Returns full metadata for a single book by UUID.
+      summary: Retrieve a book
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this book.
+        required: true
+      tags:
+      - books
+      security:
+      - jwtAuth: []
+      - {}
       responses:
         '200':
           content:
@@ -486,49 +529,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/Book'
           description: ''
-    get:
-      operationId: books_retrieve
-      description: Returns full metadata for a single book by UUID.
-      summary: Retrieve a book
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: string
-          format: uuid
-        description: A UUID string identifying this book.
-        required: true
-      tags:
-      - books
-      security:
-      - jwtAuth: []
-      - {}
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Book'
-          description: ''
-    delete:
-      operationId: books_destroy
-      description: Permanently deletes a book. Admin only.
-      summary: Delete a book
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: string
-          format: uuid
-        description: A UUID string identifying this book.
-        required: true
-      tags:
-      - books
-      security:
-      - jwtAuth: []
-      responses:
-        '204':
-          description: No response body
   /api/books/{id}/my-rating/:
     get:
       operationId: books_my_rating_retrieve
@@ -616,23 +616,6 @@ paths:
         '200':
           description: List of ratings
   /api/imports/:
-    post:
-      operationId: imports_create
-      description: |-
-        POST /api/imports/        — upload CSV, triggers import, returns job
-        GET  /api/imports/        — list all import jobs (admin only)
-        GET  /api/imports/{id}/   — check status of a specific import job
-      tags:
-      - imports
-      security:
-      - jwtAuth: []
-      responses:
-        '201':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ImportJob'
-          description: ''
     get:
       operationId: imports_list
       description: |-
@@ -668,6 +651,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PaginatedImportJobList'
+          description: ''
+    post:
+      operationId: imports_create
+      description: |-
+        POST /api/imports/        — upload CSV, triggers import, returns job
+        GET  /api/imports/        — list all import jobs (admin only)
+        GET  /api/imports/{id}/   — check status of a specific import job
+      tags:
+      - imports
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportJob'
           description: ''
   /api/imports/{id}/:
     get:
@@ -736,6 +736,30 @@ paths:
                 $ref: '#/components/schemas/PaginatedBookRatingList'
           description: ''
   /api/ratings/{id}/:
+    delete:
+      operationId: ratings_destroy
+      description: |-
+        Dedicated endpoints for a user's own ratings.
+
+        GET  /api/ratings/           — list all of my ratings
+        GET  /api/ratings/{id}/      — retrieve one of my ratings
+        PATCH /api/ratings/{id}/     — update my rating
+        DELETE /api/ratings/{id}/    — delete my rating
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this book rating.
+        required: true
+      tags:
+      - ratings
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
     patch:
       operationId: ratings_partial_update
       description: |-
@@ -803,30 +827,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/BookRating'
           description: ''
-    delete:
-      operationId: ratings_destroy
-      description: |-
-        Dedicated endpoints for a user's own ratings.
-
-        GET  /api/ratings/           — list all of my ratings
-        GET  /api/ratings/{id}/      — retrieve one of my ratings
-        PATCH /api/ratings/{id}/     — update my rating
-        DELETE /api/ratings/{id}/    — delete my rating
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: string
-          format: uuid
-        description: A UUID string identifying this book rating.
-        required: true
-      tags:
-      - ratings
-      security:
-      - jwtAuth: []
-      responses:
-        '204':
-          description: No response body
   /api/analytics/genre-trends/:
     get:
       operationId: analytics_genre_trends_retrieve
@@ -900,8 +900,6 @@ components:
           maxLength: 300
         isbn_13:
           type: string
-          nullable: true
-          maxLength: 13
         description:
           type: string
         genre:
@@ -981,6 +979,7 @@ components:
       - genre_confidence
       - id
       - is_flagged
+      - isbn_13
       - normalized_author
       - normalized_title
       - quality_score
@@ -1099,8 +1098,7 @@ components:
           maxLength: 300
         isbn_13:
           type: string
-          nullable: true
-          maxLength: 13
+          minLength: 1
         description:
           type: string
         genre:
@@ -1129,6 +1127,7 @@ components:
           maxLength: 200
       required:
       - author
+      - isbn_13
       - title
     CustomTokenObtainPairRequest:
       type: object
@@ -1288,8 +1287,7 @@ components:
           maxLength: 300
         isbn_13:
           type: string
-          nullable: true
-          maxLength: 13
+          minLength: 1
         description:
           type: string
         genre:
