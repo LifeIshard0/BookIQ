@@ -196,7 +196,7 @@ class BookApiTests(SimpleTestCase):
 			review='Strong recommendation.',
 			created_at=datetime.now(timezone.utc),
 			updated_at=datetime.now(timezone.utc),
-			book=SimpleNamespace(pk='book-id'),
+			book=SimpleNamespace(pk='book-id', title='Book Title'),
 			id='rating-id',
 		)
 
@@ -206,3 +206,29 @@ class BookApiTests(SimpleTestCase):
 
 		self.assertEqual(response.status_code, 201)
 		self.assertEqual(response.data['vote_type'], 'upvote')
+
+	def test_authenticated_user_can_fetch_my_rating(self):
+		request = self.factory.get(
+			reverse('book-my-rating', args=['book-id'])
+		)
+		force_authenticate(request, user=self.reader)
+
+		fake_book = SimpleNamespace(pk='book-id')
+		fake_rating = SimpleNamespace(
+			user=SimpleNamespace(username='reader'),
+			book=SimpleNamespace(pk='book-id', title='My Rated Book'),
+			vote_type='upvote',
+			rating=4,
+			review='Helpful and concise.',
+			created_at=datetime.now(timezone.utc),
+			updated_at=datetime.now(timezone.utc),
+			id='rating-id',
+		)
+
+		with patch.object(BookViewSet, 'get_object', return_value=fake_book), \
+			 patch('books.views.BookRating.objects.get', return_value=fake_rating):
+			response = BookViewSet.as_view({'get': 'my_rating'})(request, pk='book-id')
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data['book_title'], 'My Rated Book')
+		self.assertEqual(response.data['username'], 'reader')

@@ -91,15 +91,16 @@ class BookListSerializer(serializers.ModelSerializer):
 class BookRatingSerializer(serializers.ModelSerializer):
     username = serializers.SerializerMethodField()
     vote_type = serializers.SerializerMethodField()
+    book_title = serializers.SerializerMethodField()
 
     class Meta:
         model = BookRating
         fields = [
-            'id', 'book', 'rating', 'review',
+            'id', 'book', 'book_title', 'rating', 'review',
             'vote_type', 'username', 'created_at', 'updated_at'
         ]
         read_only_fields = [
-            'id', 'book', 'username',
+            'id', 'book', 'book_title', 'username',
             'vote_type', 'created_at', 'updated_at'
         ]
 
@@ -108,6 +109,9 @@ class BookRatingSerializer(serializers.ModelSerializer):
 
     def get_vote_type(self, obj):
         return obj.vote_type
+    
+    def get_book_title(self, obj):
+        return obj.book.title
 
     def validate_rating(self, value):
         if value not in range(1, 6):

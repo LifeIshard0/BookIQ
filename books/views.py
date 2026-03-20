@@ -120,6 +120,34 @@ class BookViewSet(viewsets.ModelViewSet):
         serializer = BookRatingSerializer(ratings, many=True)
         return Response(serializer.data)
 
+    @action(
+        detail=True,
+        methods=['get'],
+        permission_classes=[IsReaderOrAbove],
+        url_path='my-rating'
+    )
+    def my_rating(self, request, pk=None):
+        """
+        GET /api/books/{id}/my-rating/
+        Returns the current user's rating for this book, or 404 if the user has not rated it yet.
+        Useful for pre-populating rating UI without fetching all ratings.
+        """
+        book = self.get_object()
+        try:
+            rating = BookRating.objects.get(book=book, user=request.user)
+            serializer = BookRatingSerializer(rating)
+            return Response(serializer.data)
+        except BookRating.DoesNotExist:
+            return Response(
+                {
+                    'error': True,
+                    'status_code': 404,
+                    'detail': 'You have not rated this book yet.'
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+
 class ImportJobViewSet(viewsets.GenericViewSet):
     """
     POST /api/imports/        — upload CSV, triggers import, returns job
@@ -185,3 +213,65 @@ class ImportJobViewSet(viewsets.GenericViewSet):
         job.refresh_from_db()
         serializer = self.get_serializer(job)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+class RatingViewSet(viewsets.GenericViewSet):
+    """
+    Dedicated endpoints for a user's own ratings.
+
+    GET  /api/ratings/           — list all of my ratings
+    GET  /api/ratings/{id}/      — retrieve one of my ratings
+    PATCH /api/ratings/{id}/     — update my rating
+    DELETE /api/ratings/{id}/    — delete my rating
+    """
+    serializer_class = BookRatingSerializer
+    permission_classes = [IsReaderOrAbove]
+
+    def get_queryset(self):
+        # Users can only see and manage their own ratings
+        return BookRating.objects.filter(
+            user=self.request.user
+        ).select_related('book', 'user').order_by('-created_at')
+
+    def list(self, request):
+        queryset = self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    def retrieve(self, request, pk=None):
+        rating = get_object_or_404(
+            BookRating,
+            pk=pk,
+            user=request.user
+        )
+        serializer = self.get_serializer(rating)
+        return Response(serializer.data)
+
+    def partial_update(self, request, pk=None):
+        rating = get_object_or_404(
+            BookRating,
+            pk=pk,
+            user=request.user
+        )
+        serializer = self.get_serializer(
+            rating,
+            data=request.data,
+            partial=True
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    def destroy(self, request, pk=None):
+        rating = get_object_or_404(
+            BookRating,
+            pk=pk,
+            user=request.user
+        )
+        book_title = rating.book.title
+        rating.delete()
+        # Signal fires automatically — book aggregates updated
+        return Response(
+            {'message': f"Rating for '{book_title}' deleted successfully."},
+            status=status.HTTP_204_NO_CONTENT
+        )
+
