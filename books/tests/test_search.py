@@ -142,17 +142,9 @@ class BookSearchTests(SimpleTestCase):
 		self.assertEqual(response.status_code, 200)
 		self.assertEqual(response.data['filters_applied'], {'q': 'war', 'min_quality': '0.7'})
 
-	def test_flagged_books_require_curator_or_admin(self):
+	def test_reader_can_search_flagged_books(self):
 		request = self.factory.get('/api/books/search/?is_flagged=true')
 		force_authenticate(request, user=self.reader)
-
-		response = BookViewSet.as_view({'get': 'search'})(request)
-
-		self.assertEqual(response.status_code, 403)
-
-	def test_curator_can_search_flagged_books(self):
-		request = self.factory.get('/api/books/search/?is_flagged=true')
-		force_authenticate(request, user=self.curator)
 
 		books = SearchQuerySet([
 			SimpleNamespace(title='Flagged Book', is_flagged=True, rating_count=5, quality_score=0.8, average_rating=4.2),

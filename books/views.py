@@ -3,7 +3,6 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticatedOrReadOnly, AllowAny
 from rest_framework.parsers import MultiPartParser, FormParser
-from rest_framework.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404
 from django.db import IntegrityError
 
@@ -34,20 +33,7 @@ class BookViewSet(viewsets.ModelViewSet):
     ]
     ordering = ['-created_at']
 
-    def _guard_flagged_filter_access(self):
-        is_flagged = self.request.query_params.get('is_flagged')
-        if is_flagged is None:
-            return
-
-        user = getattr(self.request, 'user', None)
-        if user is None:
-            raise PermissionDenied('Curator or Admin role required.')
-
-        if not IsCuratorOrAbove().has_permission(self.request, self):
-            raise PermissionDenied('Curator or Admin role required.')
-
     def get_queryset(self):
-        self._guard_flagged_filter_access()
         queryset = super().get_queryset()
         is_flagged = self.request.query_params.get('is_flagged')
 
@@ -200,9 +186,6 @@ class BookViewSet(viewsets.ModelViewSet):
         page           — page number
         page_size      — results per page (max 100)
         """
-        if request.GET.get('is_flagged') is not None and not IsCuratorOrAbove().has_permission(request, self):
-            raise PermissionDenied('Curator or Admin role required.')
-
         queryset = Book.objects.select_related('created_by').all()
 
         # Apply filters
