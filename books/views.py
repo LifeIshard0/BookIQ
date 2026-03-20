@@ -18,7 +18,46 @@ from .pagination import BookPagination
 
 from books.services.search import wilson_score_lower_bound
 
+from drf_spectacular.utils import (
+    extend_schema,
+    extend_schema_view,
+    OpenApiParameter,
+    OpenApiExample,
+    OpenApiResponse,
+)
+from drf_spectacular.types import OpenApiTypes
 
+
+@extend_schema_view(
+    list=extend_schema(
+        tags=['books'],
+        summary='List all books',
+        description=(
+            'Returns a paginated list of all books ordered by creation date. '
+            'Supports filtering via BookFilter params.'
+        ),
+    ),
+    retrieve=extend_schema(
+        tags=['books'],
+        summary='Retrieve a book',
+        description='Returns full metadata for a single book by UUID.',
+    ),
+    create=extend_schema(
+        tags=['books'],
+        summary='Create a book',
+        description='Creates a new book. Runs the 7-step cleaning pipeline automatically. Curator+ only.',
+    ),
+    partial_update=extend_schema(
+        tags=['books'],
+        summary='Update a book',
+        description='Partially updates a book record. Curator+ only.',
+    ),
+    destroy=extend_schema(
+        tags=['books'],
+        summary='Delete a book',
+        description='Permanently deletes a book. Admin only.',
+    ),
+)
 class BookViewSet(viewsets.ModelViewSet):
     queryset = Book.objects.select_related('created_by').all()
     pagination_class = BookPagination
@@ -96,6 +135,22 @@ class BookViewSet(viewsets.ModelViewSet):
             status=status.HTTP_204_NO_CONTENT
         )
 
+    @extend_schema(
+        tags=['ratings'],
+        summary='Rate a book',
+        description=(
+            'Creates or updates the authenticated user\'s rating for a book (upsert). '
+            'Rating 1–5. Rating ≥ 4 = upvote, ≤ 2 = downvote, 3 = neutral.\n\n'
+            'Triggers a Django signal that recomputes the book\'s average_rating, '
+            'rating_count, upvote_count, and downvote_count.'
+        ),
+        responses={
+            200: OpenApiResponse(description='Rating updated'),
+            201: OpenApiResponse(description='Rating created'),
+            400: OpenApiResponse(description='Invalid rating value'),
+            401: OpenApiResponse(description='Authentication required'),
+        },
+    )
     @action(
         detail=True,
         methods=['post'],
@@ -121,6 +176,12 @@ class BookViewSet(viewsets.ModelViewSet):
         status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
         return Response(response_serializer.data, status=status_code)
 
+    @extend_schema(
+        tags=['ratings'],
+        summary='List ratings for a book',
+        description='Returns all ratings submitted for a specific book.',
+        responses={200: OpenApiResponse(description='List of ratings')},
+    )
     @action(
         detail=True,
         methods=['get'],
@@ -134,6 +195,15 @@ class BookViewSet(viewsets.ModelViewSet):
         serializer = BookRatingSerializer(ratings, many=True)
         return Response(serializer.data)
 
+    @extend_schema(
+        tags=['ratings'],
+        summary='Get my rating for a book',
+        description='Returns the authenticated user\'s rating for a specific book. 404 if not yet rated.',
+        responses={
+            200: OpenApiResponse(description='The user\'s rating'),
+            404: OpenApiResponse(description='User has not rated this book'),
+        },
+    )
     @action(
         detail=True,
         methods=['get'],
@@ -161,6 +231,36 @@ class BookViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
     
+    @extend_schema(
+        tags=['search'],
+        summary='Full-text search books',
+        description=(
+            'PostgreSQL full-text search using SearchVector + SearchRank '
+            'with GIN index. Supports websearch syntax: '
+            '"exact phrase", word1 word2 (AND), OR, -exclusion.\n\n'
+            'When ?q= is provided, returns results annotated with rank '
+            'and headline (highlighted description snippet with <mark> tags).\n\n'
+            'Without ?q=, returns filtered list ordered by average_rating.'
+        ),
+        parameters=[
+            OpenApiParameter('q', OpenApiTypes.STR, description='Search query (websearch syntax)'),
+            OpenApiParameter('genre', OpenApiTypes.STR, description='Partial genre match'),
+            OpenApiParameter('author', OpenApiTypes.STR, description='Partial author match'),
+            OpenApiParameter('min_quality', OpenApiTypes.FLOAT, description='Min quality score (0.0–1.0)'),
+            OpenApiParameter('max_quality', OpenApiTypes.FLOAT, description='Max quality score (0.0–1.0)'),
+            OpenApiParameter('min_rating', OpenApiTypes.FLOAT, description='Min average rating (1–5)'),
+            OpenApiParameter('published_after', OpenApiTypes.INT, description='Published year from'),
+            OpenApiParameter('published_before', OpenApiTypes.INT, description='Published year to'),
+            OpenApiParameter('is_flagged', OpenApiTypes.BOOL, description='Filter flagged books'),
+            OpenApiParameter('ordering', OpenApiTypes.STR, description='Order by field (prefix - for desc)'),
+            OpenApiParameter('page', OpenApiTypes.INT, description='Page number'),
+            OpenApiParameter('page_size', OpenApiTypes.INT, description='Results per page (max 100)'),
+        ],
+        responses={
+            200: OpenApiResponse(description='Paginated search results with rank and headline'),
+            400: OpenApiResponse(description='Invalid filter parameters'),
+        },
+    )
     @action(
         detail=False,
         methods=['get'],
@@ -253,6 +353,28 @@ class BookViewSet(viewsets.ModelViewSet):
         serializer = BookListSerializer(results_qs, many=True)
         return Response(serializer.data)
 
+    @extend_schema(
+        tags=['search'],
+        summary='Hybrid search with Reciprocal Rank Fusion',
+        description=(
+            'Blends PostgreSQL FTS relevance with Wilson Score popularity '
+            'using Reciprocal Rank Fusion (Cormack et al., 2009).\n\n'
+            'RRF score = fts_weight*(1/(k+fts_rank)) + pop_weight*(1/(k+pop_rank)) '
+            'where k=60.\n\n'
+            'Returns rrf_score, fts_rank, and wilson_score per result.'
+        ),
+        parameters=[
+            OpenApiParameter('q', OpenApiTypes.STR, required=True, description='Search query'),
+            OpenApiParameter('fts_weight', OpenApiTypes.FLOAT, description='FTS signal weight (default 0.7)'),
+            OpenApiParameter('popularity_weight', OpenApiTypes.FLOAT, description='Popularity signal weight (default 0.3)'),
+            OpenApiParameter('page', OpenApiTypes.INT, description='Page number'),
+            OpenApiParameter('page_size', OpenApiTypes.INT, description='Results per page (max 100)'),
+        ],
+        responses={
+            200: OpenApiResponse(description='RRF-ranked results with rrf_score, fts_rank, wilson_score'),
+            400: OpenApiResponse(description='Missing ?q= parameter or invalid weights'),
+        },
+    )
     @action(
         detail=False,
         methods=['get'],
@@ -354,6 +476,31 @@ class BookViewSet(viewsets.ModelViewSet):
             'results': serialised_results,
         })
 
+    @extend_schema(
+        tags=['recommendations'],
+        summary='Get personalised book recommendations',
+        description=(
+            'Returns personalised recommendations using a three-strategy waterfall:\n\n'
+            '1. **content_based** — genre/author profile from books rated ≥ 4\n'
+            '2. **collaborative** — Jaccard similarity with similar users\n'
+            '3. **popularity_wilson_score** — cold-start Wilson Score fallback\n\n'
+            'Response includes recommendation_strategy and profile_summary '
+            '(top genres, top authors, total ratings).'
+        ),
+        parameters=[
+            OpenApiParameter('limit', OpenApiTypes.INT, description='Number of results (default 20, max 50)'),
+            OpenApiParameter(
+                'strategy',
+                OpenApiTypes.STR,
+                description='Force strategy: content_based | collaborative | popularity',
+                enum=['content_based', 'collaborative', 'popularity'],
+            ),
+        ],
+        responses={
+            200: OpenApiResponse(description='Recommendations with strategy and profile summary'),
+            401: OpenApiResponse(description='Authentication required'),
+        },
+    )
     @action(
         detail=False,
         methods=['get'],
@@ -440,11 +587,14 @@ class ImportJobViewSet(viewsets.GenericViewSet):
     GET  /api/imports/        — list all import jobs (admin only)
     GET  /api/imports/{id}/   — check status of a specific import job
     """
+    queryset = ImportJob.objects.none()
     serializer_class = ImportJobSerializer
     permission_classes = [IsAdminRole]
     parser_classes = [MultiPartParser, FormParser]
 
     def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return ImportJob.objects.none()
         return ImportJob.objects.filter(
             created_by=self.request.user
         ).order_by('-created_at')
@@ -509,10 +659,13 @@ class RatingViewSet(viewsets.GenericViewSet):
     PATCH /api/ratings/{id}/     — update my rating
     DELETE /api/ratings/{id}/    — delete my rating
     """
+    queryset = BookRating.objects.none()
     serializer_class = BookRatingSerializer
     permission_classes = [IsReaderOrAbove]
 
     def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return BookRating.objects.none()
         # Users can only see and manage their own ratings
         return BookRating.objects.filter(
             user=self.request.user

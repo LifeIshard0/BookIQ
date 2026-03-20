@@ -9,7 +9,27 @@ from books.services.analytics import (
     get_catalogue_summary,
 )
 
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiResponse
+from drf_spectacular.types import OpenApiTypes
 
+
+@extend_schema(
+    tags=['analytics'],
+    summary='Genre rating trends',
+    description=(
+        'Per-genre, per-month average rating trends. '
+        'Uses TruncMonth to group BookRating records by calendar month. '
+        'Admin only.'
+    ),
+    parameters=[
+        OpenApiParameter('months', OpenApiTypes.INT, description='Lookback window in months (default 12, max 24)'),
+    ],
+    responses={
+        200: OpenApiResponse(description='List of (genre, month, avg_rating, rating_count) datapoints'),
+        401: OpenApiResponse(description='Authentication required'),
+        403: OpenApiResponse(description='Admin role required'),
+    },
+)
 @api_view(['GET'])
 @permission_classes([IsAdminRole])
 def genre_trends(request):
@@ -51,6 +71,19 @@ def genre_trends(request):
     })
 
 
+@extend_schema(
+    tags=['analytics'],
+    summary='Genre quality ranking',
+    description=(
+        'Genres ranked by average metadata quality score. '
+        'Identifies which genres need curator attention. '
+        'Admin only.'
+    ),
+    parameters=[
+        OpenApiParameter('limit', OpenApiTypes.INT, description='Number of genres to return (default 10, max 20)'),
+    ],
+    responses={200: OpenApiResponse(description='Genres with avg quality, book count, flagged pct')},
+)
 @api_view(['GET'])
 @permission_classes([IsAdminRole])
 def genre_quality(request):
@@ -76,6 +109,17 @@ def genre_quality(request):
     })
 
 
+@extend_schema(
+    tags=['analytics'],
+    summary='Catalogue health summary',
+    description=(
+        'Full catalogue health snapshot: total books, flagged %, '
+        'avg quality score, quality bands, genre distribution, '
+        'rating statistics, top books by Wilson Score, import history. '
+        'Admin only.'
+    ),
+    responses={200: OpenApiResponse(description='Full catalogue health snapshot')},
+)
 @api_view(['GET'])
 @permission_classes([IsAdminRole])
 def catalogue_summary(request):

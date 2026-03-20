@@ -120,8 +120,41 @@ SIMPLE_JWT = {
 
 SPECTACULAR_SETTINGS = {
     'TITLE': 'BookIQ API',
-    'DESCRIPTION': 'Book Metadata Intelligence API — COMP3011 Coursework 1',
+    'DESCRIPTION': (
+        'A data-driven RESTful book metadata intelligence platform. '
+        'Provides full CRUD, PostgreSQL full-text search with GIN indexing, '
+        'hybrid Reciprocal Rank Fusion search, content-based and collaborative '
+        'recommendations, genre trend analytics, and an MCP server layer '
+        'for AI agent integration.\n\n'
+        '**Authentication:** JWT Bearer tokens. '
+        'Obtain a token via POST /api/auth/login/. '
+        'Include as: Authorization: Bearer <token>\n\n'
+        '**Roles:** reader → curator → admin (ascending permissions).'
+    ),
     'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'SWAGGER_UI_SETTINGS': {
+        'deepLinking': True,
+        'persistAuthorization': True,       # JWT persists on page refresh
+        'displayOperationId': True,
+        'defaultModelsExpandDepth': 2,
+        'defaultModelExpandDepth': 2,
+        'docExpansion': 'list',             # sections collapsed by default
+        'filter': True,                     # search box in Swagger UI
+        'showExtensions': True,
+    },
+    'COMPONENT_SPLIT_REQUEST': True,
+    'SORT_OPERATIONS': False,
+    'TAGS': [
+        {'name': 'auth',            'description': 'Registration, login, JWT token management'},
+        {'name': 'books',           'description': 'Book CRUD operations'},
+        {'name': 'search',          'description': 'Keyword, full-text, and hybrid search'},
+        {'name': 'recommendations', 'description': 'Personalised book recommendations'},
+        {'name': 'ratings',         'description': 'Book rating and review management'},
+        {'name': 'imports',         'description': 'CSV bulk import pipeline'},
+        {'name': 'analytics',       'description': 'Genre trends and catalogue health'},
+    ],
 }
+
 
 CORS_ALLOW_ALL_ORIGINS = DEBUG

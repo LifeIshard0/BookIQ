@@ -1,0 +1,1424 @@
+openapi: 3.0.3
+info:
+  title: BookIQ API
+  version: 1.0.0
+  description: |-
+    A data-driven RESTful book metadata intelligence platform. Provides full CRUD, PostgreSQL full-text search with GIN indexing, hybrid Reciprocal Rank Fusion search, content-based and collaborative recommendations, genre trend analytics, and an MCP server layer for AI agent integration.
+
+    **Authentication:** JWT Bearer tokens. Obtain a token via POST /api/auth/login/. Include as: Authorization: Bearer <token>
+
+    **Roles:** reader → curator → admin (ascending permissions).
+paths:
+  /api/auth/register/:
+    post:
+      operationId: auth_register_create
+      description: Creates a new user account. Default role is reader.
+      summary: Register a new user
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '201':
+          description: User created with JWT tokens
+        '400':
+          description: Validation error (duplicate email/username, password mismatch)
+  /api/auth/login/:
+    post:
+      operationId: auth_login_create
+      description: Authenticates credentials and returns access + refresh tokens.
+        Access token expires in 60 minutes. Refresh token expires in 7 days.
+      summary: Login and obtain JWT tokens
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CustomTokenObtainPairRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/CustomTokenObtainPairRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/CustomTokenObtainPairRequest'
+        required: true
+      responses:
+        '200':
+          description: Access and refresh tokens with role claim
+        '401':
+          description: Invalid credentials
+  /api/auth/token/refresh/:
+    post:
+      operationId: auth_token_refresh_create
+      description: |-
+        Takes a refresh type JSON web token and returns an access type JSON web
+        token if the refresh token is valid.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRefreshRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRefreshRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenRefreshRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenRefresh'
+          description: ''
+  /api/auth/profile/:
+    get:
+      operationId: auth_profile_retrieve
+      summary: Get or update user profile
+      tags:
+      - auth
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: User profile data
+    patch:
+      operationId: auth_profile_partial_update
+      summary: Get or update user profile
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedUserProfileRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedUserProfileRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedUserProfileRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: User profile data
+  /api/books/:
+    post:
+      operationId: books_create
+      description: Creates a new book. Runs the 7-step cleaning pipeline automatically.
+        Curator+ only.
+      summary: Create a book
+      tags:
+      - books
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BookRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BookRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BookRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Book'
+          description: ''
+    get:
+      operationId: books_list
+      description: Returns a paginated list of all books ordered by creation date.
+        Supports filtering via BookFilter params.
+      summary: List all books
+      parameters:
+      - in: query
+        name: author
+        schema:
+          type: string
+        description: Author (partial match)
+      - in: query
+        name: genre
+        schema:
+          type: string
+        description: Genre (partial match)
+      - in: query
+        name: is_flagged
+        schema:
+          type: boolean
+        description: Is flagged for review
+      - in: query
+        name: language
+        schema:
+          type: string
+        description: Language code (e.g. en)
+      - in: query
+        name: max_quality
+        schema:
+          type: number
+          format: float
+        description: Maximum quality score (0.0 - 1.0)
+      - in: query
+        name: min_quality
+        schema:
+          type: number
+          format: float
+        description: Minimum quality score (0.0 - 1.0)
+      - in: query
+        name: min_rating
+        schema:
+          type: number
+          format: float
+        description: Minimum average rating (1 - 5)
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: page_size
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - in: query
+        name: published_after
+        schema:
+          type: integer
+        description: Published year from
+      - in: query
+        name: published_before
+        schema:
+          type: integer
+        description: Published year to
+      - in: query
+        name: publisher
+        schema:
+          type: string
+        description: Publisher (partial match)
+      - in: query
+        name: q
+        schema:
+          type: string
+        description: Keyword search
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - books
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedBookListList'
+          description: ''
+  /api/books/hybrid-search/:
+    get:
+      operationId: books_hybrid_search_retrieve
+      description: |-
+        Blends PostgreSQL FTS relevance with Wilson Score popularity using Reciprocal Rank Fusion (Cormack et al., 2009).
+
+        RRF score = fts_weight*(1/(k+fts_rank)) + pop_weight*(1/(k+pop_rank)) where k=60.
+
+        Returns rrf_score, fts_rank, and wilson_score per result.
+      summary: Hybrid search with Reciprocal Rank Fusion
+      parameters:
+      - in: query
+        name: fts_weight
+        schema:
+          type: number
+          format: float
+        description: FTS signal weight (default 0.7)
+      - in: query
+        name: page
+        schema:
+          type: integer
+        description: Page number
+      - in: query
+        name: page_size
+        schema:
+          type: integer
+        description: Results per page (max 100)
+      - in: query
+        name: popularity_weight
+        schema:
+          type: number
+          format: float
+        description: Popularity signal weight (default 0.3)
+      - in: query
+        name: q
+        schema:
+          type: string
+        description: Search query
+        required: true
+      tags:
+      - search
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          description: RRF-ranked results with rrf_score, fts_rank, wilson_score
+        '400':
+          description: Missing ?q= parameter or invalid weights
+  /api/books/recommendations/:
+    get:
+      operationId: books_recommendations_retrieve
+      description: |-
+        Returns personalised recommendations using a three-strategy waterfall:
+
+        1. **content_based** — genre/author profile from books rated ≥ 4
+        2. **collaborative** — Jaccard similarity with similar users
+        3. **popularity_wilson_score** — cold-start Wilson Score fallback
+
+        Response includes recommendation_strategy and profile_summary (top genres, top authors, total ratings).
+      summary: Get personalised book recommendations
+      parameters:
+      - in: query
+        name: limit
+        schema:
+          type: integer
+        description: Number of results (default 20, max 50)
+      - in: query
+        name: strategy
+        schema:
+          type: string
+          enum:
+          - collaborative
+          - content_based
+          - popularity
+        description: 'Force strategy: content_based | collaborative | popularity'
+      tags:
+      - recommendations
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: Recommendations with strategy and profile summary
+        '401':
+          description: Authentication required
+  /api/books/search/:
+    get:
+      operationId: books_search_retrieve
+      description: |-
+        PostgreSQL full-text search using SearchVector + SearchRank with GIN index. Supports websearch syntax: "exact phrase", word1 word2 (AND), OR, -exclusion.
+
+        When ?q= is provided, returns results annotated with rank and headline (highlighted description snippet with <mark> tags).
+
+        Without ?q=, returns filtered list ordered by average_rating.
+      summary: Full-text search books
+      parameters:
+      - in: query
+        name: author
+        schema:
+          type: string
+        description: Partial author match
+      - in: query
+        name: genre
+        schema:
+          type: string
+        description: Partial genre match
+      - in: query
+        name: is_flagged
+        schema:
+          type: boolean
+        description: Filter flagged books
+      - in: query
+        name: max_quality
+        schema:
+          type: number
+          format: float
+        description: Max quality score (0.0–1.0)
+      - in: query
+        name: min_quality
+        schema:
+          type: number
+          format: float
+        description: Min quality score (0.0–1.0)
+      - in: query
+        name: min_rating
+        schema:
+          type: number
+          format: float
+        description: Min average rating (1–5)
+      - in: query
+        name: ordering
+        schema:
+          type: string
+        description: Order by field (prefix - for desc)
+      - in: query
+        name: page
+        schema:
+          type: integer
+        description: Page number
+      - in: query
+        name: page_size
+        schema:
+          type: integer
+        description: Results per page (max 100)
+      - in: query
+        name: published_after
+        schema:
+          type: integer
+        description: Published year from
+      - in: query
+        name: published_before
+        schema:
+          type: integer
+        description: Published year to
+      - in: query
+        name: q
+        schema:
+          type: string
+        description: Search query (websearch syntax)
+      tags:
+      - search
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          description: Paginated search results with rank and headline
+        '400':
+          description: Invalid filter parameters
+  /api/books/{id}/:
+    patch:
+      operationId: books_partial_update
+      description: Partially updates a book record. Curator+ only.
+      summary: Update a book
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this book.
+        required: true
+      tags:
+      - books
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedBookRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedBookRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedBookRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Book'
+          description: ''
+    put:
+      operationId: books_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this book.
+        required: true
+      tags:
+      - books
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BookRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BookRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BookRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Book'
+          description: ''
+    get:
+      operationId: books_retrieve
+      description: Returns full metadata for a single book by UUID.
+      summary: Retrieve a book
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this book.
+        required: true
+      tags:
+      - books
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Book'
+          description: ''
+    delete:
+      operationId: books_destroy
+      description: Permanently deletes a book. Admin only.
+      summary: Delete a book
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this book.
+        required: true
+      tags:
+      - books
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/books/{id}/my-rating/:
+    get:
+      operationId: books_my_rating_retrieve
+      description: Returns the authenticated user's rating for a specific book. 404
+        if not yet rated.
+      summary: Get my rating for a book
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this book.
+        required: true
+      tags:
+      - ratings
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          description: The user's rating
+        '404':
+          description: User has not rated this book
+  /api/books/{id}/rate/:
+    post:
+      operationId: books_rate_create
+      description: |-
+        Creates or updates the authenticated user's rating for a book (upsert). Rating 1–5. Rating ≥ 4 = upvote, ≤ 2 = downvote, 3 = neutral.
+
+        Triggers a Django signal that recomputes the book's average_rating, rating_count, upvote_count, and downvote_count.
+      summary: Rate a book
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this book.
+        required: true
+      tags:
+      - ratings
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BookRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BookRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BookRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: Rating updated
+        '201':
+          description: Rating created
+        '400':
+          description: Invalid rating value
+        '401':
+          description: Authentication required
+  /api/books/{id}/ratings/:
+    get:
+      operationId: books_ratings_retrieve
+      description: Returns all ratings submitted for a specific book.
+      summary: List ratings for a book
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this book.
+        required: true
+      tags:
+      - ratings
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          description: List of ratings
+  /api/imports/:
+    post:
+      operationId: imports_create
+      description: |-
+        POST /api/imports/        — upload CSV, triggers import, returns job
+        GET  /api/imports/        — list all import jobs (admin only)
+        GET  /api/imports/{id}/   — check status of a specific import job
+      tags:
+      - imports
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportJob'
+          description: ''
+    get:
+      operationId: imports_list
+      description: |-
+        POST /api/imports/        — upload CSV, triggers import, returns job
+        GET  /api/imports/        — list all import jobs (admin only)
+        GET  /api/imports/{id}/   — check status of a specific import job
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - imports
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedImportJobList'
+          description: ''
+  /api/imports/{id}/:
+    get:
+      operationId: imports_retrieve
+      description: |-
+        POST /api/imports/        — upload CSV, triggers import, returns job
+        GET  /api/imports/        — list all import jobs (admin only)
+        GET  /api/imports/{id}/   — check status of a specific import job
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this import job.
+        required: true
+      tags:
+      - imports
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportJob'
+          description: ''
+  /api/ratings/:
+    get:
+      operationId: ratings_list
+      description: |-
+        Dedicated endpoints for a user's own ratings.
+
+        GET  /api/ratings/           — list all of my ratings
+        GET  /api/ratings/{id}/      — retrieve one of my ratings
+        PATCH /api/ratings/{id}/     — update my rating
+        DELETE /api/ratings/{id}/    — delete my rating
+      parameters:
+      - name: ordering
+        required: false
+        in: query
+        description: Which field to use when ordering the results.
+        schema:
+          type: string
+      - name: page
+        required: false
+        in: query
+        description: A page number within the paginated result set.
+        schema:
+          type: integer
+      - name: search
+        required: false
+        in: query
+        description: A search term.
+        schema:
+          type: string
+      tags:
+      - ratings
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedBookRatingList'
+          description: ''
+  /api/ratings/{id}/:
+    patch:
+      operationId: ratings_partial_update
+      description: |-
+        Dedicated endpoints for a user's own ratings.
+
+        GET  /api/ratings/           — list all of my ratings
+        GET  /api/ratings/{id}/      — retrieve one of my ratings
+        PATCH /api/ratings/{id}/     — update my rating
+        DELETE /api/ratings/{id}/    — delete my rating
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this book rating.
+        required: true
+      tags:
+      - ratings
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedBookRatingRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedBookRatingRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedBookRatingRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookRating'
+          description: ''
+    get:
+      operationId: ratings_retrieve
+      description: |-
+        Dedicated endpoints for a user's own ratings.
+
+        GET  /api/ratings/           — list all of my ratings
+        GET  /api/ratings/{id}/      — retrieve one of my ratings
+        PATCH /api/ratings/{id}/     — update my rating
+        DELETE /api/ratings/{id}/    — delete my rating
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this book rating.
+        required: true
+      tags:
+      - ratings
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookRating'
+          description: ''
+    delete:
+      operationId: ratings_destroy
+      description: |-
+        Dedicated endpoints for a user's own ratings.
+
+        GET  /api/ratings/           — list all of my ratings
+        GET  /api/ratings/{id}/      — retrieve one of my ratings
+        PATCH /api/ratings/{id}/     — update my rating
+        DELETE /api/ratings/{id}/    — delete my rating
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this book rating.
+        required: true
+      tags:
+      - ratings
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/analytics/genre-trends/:
+    get:
+      operationId: analytics_genre_trends_retrieve
+      description: Per-genre, per-month average rating trends. Uses TruncMonth to
+        group BookRating records by calendar month. Admin only.
+      summary: Genre rating trends
+      parameters:
+      - in: query
+        name: months
+        schema:
+          type: integer
+        description: Lookback window in months (default 12, max 24)
+      tags:
+      - analytics
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: List of (genre, month, avg_rating, rating_count) datapoints
+        '401':
+          description: Authentication required
+        '403':
+          description: Admin role required
+  /api/analytics/genre-quality/:
+    get:
+      operationId: analytics_genre_quality_retrieve
+      description: Genres ranked by average metadata quality score. Identifies which
+        genres need curator attention. Admin only.
+      summary: Genre quality ranking
+      parameters:
+      - in: query
+        name: limit
+        schema:
+          type: integer
+        description: Number of genres to return (default 10, max 20)
+      tags:
+      - analytics
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: Genres with avg quality, book count, flagged pct
+  /api/analytics/summary/:
+    get:
+      operationId: analytics_summary_retrieve
+      description: 'Full catalogue health snapshot: total books, flagged %, avg quality
+        score, quality bands, genre distribution, rating statistics, top books by
+        Wilson Score, import history. Admin only.'
+      summary: Catalogue health summary
+      tags:
+      - analytics
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          description: Full catalogue health snapshot
+components:
+  schemas:
+    Book:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        title:
+          type: string
+          maxLength: 500
+        author:
+          type: string
+          maxLength: 300
+        isbn_13:
+          type: string
+          nullable: true
+          maxLength: 13
+        description:
+          type: string
+        genre:
+          type: string
+          maxLength: 100
+        published_year:
+          type: integer
+          maximum: 2147483647
+          minimum: -2147483648
+          nullable: true
+        publisher:
+          type: string
+          maxLength: 300
+        page_count:
+          type: integer
+          maximum: 2147483647
+          minimum: -2147483648
+          nullable: true
+        language:
+          type: string
+          maxLength: 10
+        cover_url:
+          type: string
+          format: uri
+          maxLength: 200
+        normalized_title:
+          type: string
+          readOnly: true
+        normalized_author:
+          type: string
+          readOnly: true
+        quality_score:
+          type: number
+          format: double
+          readOnly: true
+        is_flagged:
+          type: boolean
+          readOnly: true
+        genre_confidence:
+          type: number
+          format: double
+          readOnly: true
+        average_rating:
+          type: number
+          format: double
+          readOnly: true
+        rating_count:
+          type: integer
+          readOnly: true
+        upvote_count:
+          type: integer
+          readOnly: true
+        downvote_count:
+          type: integer
+          readOnly: true
+        vote_distribution:
+          type: object
+          additionalProperties: {}
+          readOnly: true
+        created_by_username:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - author
+      - average_rating
+      - created_at
+      - created_by_username
+      - downvote_count
+      - genre_confidence
+      - id
+      - is_flagged
+      - normalized_author
+      - normalized_title
+      - quality_score
+      - rating_count
+      - title
+      - updated_at
+      - upvote_count
+      - vote_distribution
+    BookList:
+      type: object
+      description: Lighter serializer for list views — fewer fields for performance.
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        title:
+          type: string
+          maxLength: 500
+        author:
+          type: string
+          maxLength: 300
+        genre:
+          type: string
+          maxLength: 100
+        isbn_13:
+          type: string
+          nullable: true
+          maxLength: 13
+        published_year:
+          type: integer
+          maximum: 2147483647
+          minimum: -2147483648
+          nullable: true
+        quality_score:
+          type: number
+          format: double
+          maximum: 1.0
+          minimum: 0.0
+        is_flagged:
+          type: boolean
+        average_rating:
+          type: number
+          format: double
+        rating_count:
+          type: integer
+          maximum: 2147483647
+          minimum: -2147483648
+        cover_url:
+          type: string
+          format: uri
+          maxLength: 200
+        normalized_title:
+          type: string
+          maxLength: 500
+        normalized_author:
+          type: string
+          maxLength: 300
+      required:
+      - author
+      - id
+      - title
+    BookRating:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        book:
+          type: string
+          format: uuid
+          readOnly: true
+        book_title:
+          type: string
+          readOnly: true
+        rating:
+          type: integer
+          maximum: 5
+          minimum: 1
+        review:
+          type: string
+        vote_type:
+          type: string
+          readOnly: true
+        username:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - book
+      - book_title
+      - created_at
+      - id
+      - rating
+      - updated_at
+      - username
+      - vote_type
+    BookRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 500
+        author:
+          type: string
+          minLength: 1
+          maxLength: 300
+        isbn_13:
+          type: string
+          nullable: true
+          maxLength: 13
+        description:
+          type: string
+        genre:
+          type: string
+          maxLength: 100
+        published_year:
+          type: integer
+          maximum: 2147483647
+          minimum: -2147483648
+          nullable: true
+        publisher:
+          type: string
+          maxLength: 300
+        page_count:
+          type: integer
+          maximum: 2147483647
+          minimum: -2147483648
+          nullable: true
+        language:
+          type: string
+          minLength: 1
+          maxLength: 10
+        cover_url:
+          type: string
+          format: uri
+          maxLength: 200
+      required:
+      - author
+      - title
+    CustomTokenObtainPairRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          writeOnly: true
+          minLength: 1
+        password:
+          type: string
+          writeOnly: true
+          minLength: 1
+      required:
+      - password
+      - username
+    ImportJob:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/StatusEnum'
+          readOnly: true
+        file_name:
+          type: string
+          readOnly: true
+        total_rows:
+          type: integer
+          readOnly: true
+        cleaned_count:
+          type: integer
+          readOnly: true
+        duplicate_count:
+          type: integer
+          readOnly: true
+        failed_count:
+          type: integer
+          readOnly: true
+        error_log:
+          readOnly: true
+        progress_percent:
+          type: number
+          format: float
+          readOnly: true
+        created_by_username:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        completed_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - cleaned_count
+      - completed_at
+      - created_at
+      - created_by_username
+      - duplicate_count
+      - error_log
+      - failed_count
+      - file_name
+      - id
+      - progress_percent
+      - status
+      - total_rows
+    PaginatedBookListList:
+      type: object
+      properties:
+        count:
+          type: integer
+        total_pages:
+          type: integer
+        current_page:
+          type: integer
+        next:
+          type: string
+          nullable: true
+        previous:
+          type: string
+          nullable: true
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/BookList'
+    PaginatedBookRatingList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/BookRating'
+    PaginatedImportJobList:
+      type: object
+      required:
+      - count
+      - results
+      properties:
+        count:
+          type: integer
+          example: 123
+        next:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=4
+        previous:
+          type: string
+          nullable: true
+          format: uri
+          example: http://api.example.org/accounts/?page=2
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImportJob'
+    PatchedBookRatingRequest:
+      type: object
+      properties:
+        rating:
+          type: integer
+          maximum: 5
+          minimum: 1
+        review:
+          type: string
+    PatchedBookRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 500
+        author:
+          type: string
+          minLength: 1
+          maxLength: 300
+        isbn_13:
+          type: string
+          nullable: true
+          maxLength: 13
+        description:
+          type: string
+        genre:
+          type: string
+          maxLength: 100
+        published_year:
+          type: integer
+          maximum: 2147483647
+          minimum: -2147483648
+          nullable: true
+        publisher:
+          type: string
+          maxLength: 300
+        page_count:
+          type: integer
+          maximum: 2147483647
+          minimum: -2147483648
+          nullable: true
+        language:
+          type: string
+          minLength: 1
+          maxLength: 10
+        cover_url:
+          type: string
+          format: uri
+          maxLength: 200
+    PatchedUserProfileRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          minLength: 1
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        email:
+          type: string
+          format: email
+          title: Email address
+          maxLength: 254
+        bio:
+          type: string
+    RegisterRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          minLength: 1
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        email:
+          type: string
+          format: email
+          title: Email address
+          maxLength: 254
+        password:
+          type: string
+          writeOnly: true
+          minLength: 1
+        password2:
+          type: string
+          writeOnly: true
+          minLength: 1
+        role:
+          $ref: '#/components/schemas/RoleEnum'
+      required:
+      - email
+      - password
+      - password2
+      - username
+    RoleEnum:
+      enum:
+      - reader
+      - curator
+      - admin
+      type: string
+      description: |-
+        * `reader` - Reader
+        * `curator` - Curator
+        * `admin` - Admin
+    StatusEnum:
+      enum:
+      - pending
+      - processing
+      - completed
+      - failed
+      type: string
+      description: |-
+        * `pending` - Pending
+        * `processing` - Processing
+        * `completed` - Completed
+        * `failed` - Failed
+    TokenRefresh:
+      type: object
+      properties:
+        access:
+          type: string
+          readOnly: true
+      required:
+      - access
+    TokenRefreshRequest:
+      type: object
+      properties:
+        refresh:
+          type: string
+          writeOnly: true
+          minLength: 1
+      required:
+      - refresh
+  securitySchemes:
+    jwtAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+tags:
+- name: auth
+  description: Registration, login, JWT token management
+- name: books
+  description: Book CRUD operations
+- name: search
+  description: Keyword, full-text, and hybrid search
+- name: recommendations
+  description: Personalised book recommendations
+- name: ratings
+  description: Book rating and review management
+- name: imports
+  description: CSV bulk import pipeline
+- name: analytics
+  description: Genre trends and catalogue health
