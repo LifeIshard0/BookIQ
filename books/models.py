@@ -121,6 +121,8 @@ class BookRating(models.Model):
 
     @property
     def vote_type(self):
+        if self.rating is None:
+            return 'neutral'
         if self.rating >= 4:
             return 'upvote'
         elif self.rating <= 2:

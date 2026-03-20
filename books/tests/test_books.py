@@ -10,6 +10,7 @@ from django.test import SimpleTestCase
 from django.urls import reverse
 from rest_framework.test import APIRequestFactory, force_authenticate
 
+from books.models import BookRating
 from books.views import BookViewSet
 
 
@@ -232,3 +233,8 @@ class BookApiTests(SimpleTestCase):
 		self.assertEqual(response.status_code, 200)
 		self.assertEqual(response.data['book_title'], 'My Rated Book')
 		self.assertEqual(response.data['username'], 'reader')
+
+	def test_vote_type_is_neutral_when_rating_is_missing(self):
+		rating = BookRating(rating=None)
+
+		self.assertEqual(rating.vote_type, 'neutral')
