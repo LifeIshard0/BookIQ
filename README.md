@@ -49,39 +49,39 @@ BookIQ provides full CRUD, PostgreSQL full-text search with GIN indexing, hybrid
 COMP3011-Web-Services-and-Web-Data-CW1/
 ├── bookiq/
 │   ├── __init__.py
-│   ├── asgi.py
-│   ├── settings.py
-│   ├── settings_production.py
-│   ├── urls.py
-│   └── wsgi.py
+│   ├── asgi.py                # ASGI application entrypoint
+│   ├── settings.py            # Base Django settings
+│   ├── settings_production.py # Production-only Django settings
+│   ├── urls.py                # Project-level URL routing
+│   └── wsgi.py                # WSGI application entrypoint
 ├── books/
 │   ├── __init__.py
-│   ├── admin.py
-│   ├── apps.py
-│   ├── exceptions.py
-│   ├── filters.py
-│   ├── models.py
-│   ├── pagination.py
-│   ├── permissions.py
-│   ├── serializers.py
-│   ├── urls.py
-│   ├── urls_analytics.py
-│   ├── views.py
-│   ├── views_analytics.py
+│   ├── admin.py               # Django admin registrations
+│   ├── apps.py                # App configuration
+│   ├── exceptions.py          # Custom exception handling
+│   ├── filters.py             # Query filter definitions
+│   ├── models.py              # Core data models
+│   ├── pagination.py          # Pagination classes
+│   ├── permissions.py         # Role-based access control
+│   ├── serializers.py         # Validation and JSON serialization
+│   ├── urls.py                # Book-related API routes
+│   ├── urls_analytics.py      # Analytics API routes
+│   ├── views.py               # Main API views
+│   ├── views_analytics.py     # Analytics views
 │   ├── management/
 │   │   └── commands/
-│   │       ├── build_search_index.py
-│   │       └── import_books.py
+│   │       ├── build_search_index.py # Command to build search index
+│   │       └── import_books.py       # CSV import command
 │   ├── migrations/
 │   │   ├── 0001_initial.py
 │   │   ├── 0002_remove_embedding_field.py
 │   │   └── 0003_add_search_vector_gin_index.py
 │   ├── services/
-│   │   ├── analytics.py
-│   │   ├── cleaning.py
-│   │   ├── importer.py
-│   │   ├── recommender.py
-│   │   └── search.py
+│   │   ├── analytics.py       # Analytics/business logic
+│   │   ├── cleaning.py        # Metadata cleaning pipeline
+│   │   ├── importer.py        # Import pipeline logic
+│   │   ├── recommender.py     # Recommendation engine
+│   │   └── search.py          # Full-text and hybrid search logic
 │   └── tests/
 │       ├── test_analytics.py
 │       ├── test_auth.py
@@ -100,29 +100,29 @@ COMP3011-Web-Services-and-Web-Data-CW1/
 │       └── test_view_helpers.py
 ├── users/
 │   ├── __init__.py
-│   ├── admin.py
-│   ├── apps.py
-│   ├── models.py
-│   ├── serializers.py
-│   ├── tests.py
-│   ├── urls.py
-│   ├── views.py
+│   ├── admin.py               # User admin configuration
+│   ├── apps.py                # App configuration
+│   ├── models.py              # Custom user model
+│   ├── serializers.py         # User auth/profile serializers
+│   ├── tests.py               # User-related tests
+│   ├── urls.py                # User/auth routes
+│   ├── views.py               # Register/login/profile views
 │   └── migrations/
 │       └── 0001_initial.py
 ├── data/
-│   ├── README.md
-│   └── books.csv
+│   ├── README.md              # Dataset documentation
+│   └── books.csv              # Source dataset
 ├── docs/
-│   ├── schema.json
-│   └── schema.yml
-├── bookiq_mcp_server.py
-├── manage.py
-├── Procfile
-├── pytest.ini
-├── railway.toml
-├── README.md
-├── requirements.txt
-└── schema.yml
+│   ├── schema.json            # OpenAPI JSON schema
+│   └── schema.yml             # OpenAPI YAML schema
+├── bookiq_mcp_server.py       # MCP-compatible server layer
+├── manage.py                  # Django management entrypoint
+├── Procfile                   # Deployment process definition
+├── pytest.ini                 # Pytest configuration
+├── railway.toml               # Railway deployment config
+├── README.md                  # Project overview and usage
+├── requirements.txt           # Python dependencies
+└── schema.yml                 # Generated API schema
 ```
 
 ---
