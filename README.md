@@ -277,12 +277,25 @@ pytest books/tests/test_search.py -v
 
 | Module | Tests | Coverage areas |
 |---|---:|---|
+| `test_analytics.py` | 6 | Catalogue summary, genre trends, genre quality, admin access |
 | `test_auth.py` | 9 | Registration, login, token refresh, profile |
 | `test_books.py` | 13 | CRUD, RBAC (reader/curator/admin), rating upsert |
+| `test_cleaning.py` | 15 | Title/author normalisation, ISBN validation, genre inference, duplicate detection, quality scoring |
+| `test_exceptions.py` | 19 | JSON error envelope, custom handlers, DRF exception formatting |
+| `test_filters.py` | 2 | BookFilter query behavior |
 | `test_imports.py` | 17 | CSV upload, importer helpers, duplicate handling, RBAC |
+| `test_mcp_server.py` | 6 | MCP server tools and resources |
+| `test_models.py` | 8 | Model fields, constraints, signals, aggregates |
+| `test_permissions.py` | 4 | Role-based permission classes |
+| `test_recommender.py` | 6 | Recommendation waterfall and strategies |
 | `test_search.py` | 25 | FTS, hybrid RRF, filters, pagination |
+| `test_serializers.py` | 8 | Book, rating, and import-job serialization |
+| `test_service_logic.py` | 28 | Search, analytics, recommendation, and helper logic |
+| `test_view_helpers.py` | 8 | Shared view helpers and response shaping |
 
-Additional test modules live under `books/tests/` for analytics, cleaning, exceptions, filters, MCP server, models, permissions, recommender logic, serializers, service logic, and view helpers.
+`books/tests/conftest.py` and `books/tests/__init__.py` are support files, not test modules.
+
+Total test functions across the test modules above: 168.
 
 ---
 
