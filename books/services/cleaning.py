@@ -153,11 +153,6 @@ GENRE_KEYWORDS: dict[str, list[str]] = {
         'management', 'finance', 'investment', 'market', 'economics',
         'corporate', 'profit', 'company', 'trade', 'commerce'
     ],
-    'Fiction': [
-        'novel', 'story', 'narrative', 'fiction', 'character',
-        'journey', 'life', 'family', 'society', 'struggle',
-        'coming of age', 'redemption', 'identity', 'culture'
-    ],
 }
 
 
@@ -198,7 +193,7 @@ def infer_genre_by_keywords(description: str) -> tuple[str, float]:
 
 # ─── Step 5: Duplicate Detection ─────────────────────────────────────────────
 
-def is_likely_duplicate(title: str, author: str, exclude_id=None) -> bool:
+def is_likely_duplicate(title: str, author: str, exclude_id=None, existing_books=None) -> bool:
     """
     Detects near-duplicate books using:
     1. Exact ISBN match — enforced at DB level (unique constraint)
@@ -207,16 +202,24 @@ def is_likely_duplicate(title: str, author: str, exclude_id=None) -> bool:
     """
     try:
         from rapidfuzz import fuzz
-        from books.models import Book
 
         normalised = f"{normalise_title(title)} {standardise_author(author)}".lower()
 
-        qs = Book.objects.only('id', 'normalized_title', 'normalized_author')
-        if exclude_id:
-            qs = qs.exclude(id=exclude_id)
+        if existing_books is None:
+            from books.models import Book
 
-        for book in qs[:500]:
-            candidate = f"{book.normalized_title} {book.normalized_author}".lower()
+            qs = Book.objects.only('id', 'normalized_title', 'normalized_author')
+            if exclude_id:
+                qs = qs.exclude(id=exclude_id)
+            candidates = qs[:500]
+        else:
+            candidates = existing_books
+
+        for book in candidates:
+            if exclude_id and getattr(book, 'id', None) == exclude_id:
+                continue
+
+            candidate = f"{getattr(book, 'normalized_title', '')} {getattr(book, 'normalized_author', '')}".lower()
             score = fuzz.token_sort_ratio(normalised, candidate)
             if score >= 90:
                 return True
@@ -234,7 +237,7 @@ def compute_quality_score(
 ) -> float:
     """
     Weighted quality formula:
-      completeness (50%) + isbn_validity (30%) + genre_confidence (20%)
+      completeness (30%) + isbn_validity (50%) + genre_confidence (20%)
 
     Completeness = proportion of key fields that are non-empty.
     Returns float in [0.0, 1.0].
@@ -249,13 +252,13 @@ def compute_quality_score(
     )
     completeness = filled / len(key_fields)
     isbn_score = 1.0 if isbn_valid else 0.0
-    score = (completeness * 0.5) + (isbn_score * 0.3) + (genre_confidence * 0.2)
+    score = (completeness * 0.3) + (isbn_score * 0.5) + (genre_confidence * 0.2)
     return round(min(max(score, 0.0), 1.0), 3)
 
 
 # ─── Step 7: Flagging ────────────────────────────────────────────────────────
 
-QUALITY_FLAG_THRESHOLD = 0.5
+QUALITY_FLAG_THRESHOLD = 0.8
 
 
 def should_flag(quality_score: float) -> bool:
@@ -265,7 +268,11 @@ def should_flag(quality_score: float) -> bool:
 
 # ─── Master Pipeline ─────────────────────────────────────────────────────────
 
-def run_cleaning_pipeline(book_data: dict, book_id=None) -> dict:
+def run_cleaning_pipeline(
+    book_data: dict,
+    book_id=None,
+    duplicate_candidates=None
+) -> dict:
     """
     Executes all 7 cleaning steps sequentially.
 
@@ -301,7 +308,8 @@ def run_cleaning_pipeline(book_data: dict, book_id=None) -> dict:
     fuzzy_dup = is_likely_duplicate(
         result.get('title', ''),
         result.get('author', ''),
-        exclude_id=book_id
+        exclude_id=book_id,
+        existing_books=duplicate_candidates
     )
 
     # Step 6 — quality scoring

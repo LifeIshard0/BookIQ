@@ -23,6 +23,19 @@ class BookViewSet(viewsets.ModelViewSet):
     ]
     ordering = ['-created_at']
 
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        is_flagged = self.request.query_params.get('is_flagged')
+
+        if is_flagged is not None:
+            normalized = is_flagged.strip().lower()
+            if normalized in {'true', '1', 'yes'}:
+                queryset = queryset.filter(is_flagged=True)
+            elif normalized in {'false', '0', 'no'}:
+                queryset = queryset.filter(is_flagged=False)
+
+        return queryset
+
     def get_serializer_class(self):
         if self.action == 'list':
             return BookListSerializer
@@ -162,9 +175,8 @@ class ImportJobViewSet(viewsets.GenericViewSet):
 
         # Process synchronously (no Celery for coursework)
         # In production this would be: process_csv_import.delay(...)
-        file_content = uploaded_file.read()
         process_csv_import(
-            file_content=file_content,
+            file_content=uploaded_file,
             file_name=uploaded_file.name,
             imported_by=request.user,
             job=job,

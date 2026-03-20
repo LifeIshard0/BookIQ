@@ -45,11 +45,8 @@ class Command(BaseCommand):
             created_by=user,
         )
 
-        with open(csv_path, 'rb') as f:
-            file_content = f.read()
-
         process_csv_import(
-            file_content=file_content,
+            file_content=csv_path,
             file_name=os.path.basename(csv_path),
             imported_by=user,
             job=job,

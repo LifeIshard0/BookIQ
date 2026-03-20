@@ -203,9 +203,9 @@ def run_pipeline_on_book_save(sender, instance, **kwargs):
         book_id=instance.pk if instance.pk else None
     )
 
+    instance.genre = cleaned.get('genre', instance.genre)
     instance.normalized_title = cleaned.get('normalized_title', '')
     instance.normalized_author = cleaned.get('normalized_author', '')
-    instance.genre = cleaned.get('genre', instance.genre)
     instance.genre_confidence = cleaned.get('genre_confidence', 0.0)
     instance.quality_score = cleaned.get('quality_score', 0.0)
     instance.is_flagged = cleaned.get('is_flagged', False)
