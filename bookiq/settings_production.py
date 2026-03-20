@@ -27,10 +27,20 @@ DEBUG = False
 
 SECRET_KEY = os.environ['DJANGO_SECRET_KEY']
 
-ALLOWED_HOSTS = os.environ.get(
-    'ALLOWED_HOSTS',
-    '*'
-).split(',')
+default_allowed_hosts = [
+    'healthcheck.railway.app',
+    '.railway.app',
+    'localhost',
+    '127.0.0.1',
+]
+
+configured_allowed_hosts = [
+    host.strip()
+    for host in os.environ.get('ALLOWED_HOSTS', '').split(',')
+    if host.strip()
+]
+
+ALLOWED_HOSTS = list(dict.fromkeys(configured_allowed_hosts + default_allowed_hosts))
 
 # ─── Database ──────────────────────────────────────────
 # Railway usually injects a private DATABASE_URL. Fall back to
