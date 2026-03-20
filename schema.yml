@@ -419,39 +419,6 @@ paths:
         '400':
           description: Invalid filter parameters
   /api/books/{id}/:
-    put:
-      operationId: books_update
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: string
-          format: uuid
-        description: A UUID string identifying this book.
-        required: true
-      tags:
-      - books
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/BookRequest'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/BookRequest'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/BookRequest'
-        required: true
-      security:
-      - jwtAuth: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Book'
-          description: ''
     patch:
       operationId: books_partial_update
       description: Partially updates a book record. Curator+ only.
@@ -503,6 +470,39 @@ paths:
       security:
       - jwtAuth: []
       - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Book'
+          description: ''
+    put:
+      operationId: books_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        description: A UUID string identifying this book.
+        required: true
+      tags:
+      - books
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BookRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/BookRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/BookRequest'
+        required: true
+      security:
+      - jwtAuth: []
       responses:
         '200':
           content:
@@ -900,8 +900,6 @@ components:
           maxLength: 300
         isbn_13:
           type: string
-          nullable: true
-          maxLength: 13
         description:
           type: string
         genre:
@@ -981,6 +979,7 @@ components:
       - genre_confidence
       - id
       - is_flagged
+      - isbn_13
       - normalized_author
       - normalized_title
       - quality_score
@@ -1099,8 +1098,7 @@ components:
           maxLength: 300
         isbn_13:
           type: string
-          nullable: true
-          maxLength: 13
+          minLength: 1
         description:
           type: string
         genre:
@@ -1129,6 +1127,7 @@ components:
           maxLength: 200
       required:
       - author
+      - isbn_13
       - title
     CustomTokenObtainPairRequest:
       type: object
@@ -1288,8 +1287,7 @@ components:
           maxLength: 300
         isbn_13:
           type: string
-          nullable: true
-          maxLength: 13
+          minLength: 1
         description:
           type: string
         genre:
