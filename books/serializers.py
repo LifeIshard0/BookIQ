@@ -5,6 +5,7 @@ from .models import Book, BookRating, ImportJob
 
 
 class BookSerializer(serializers.ModelSerializer):
+    isbn_13 = serializers.CharField(required=True, allow_blank=False, allow_null=False)
     created_by_username = serializers.SerializerMethodField()
     vote_distribution = serializers.SerializerMethodField()
 

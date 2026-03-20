@@ -36,6 +36,9 @@ class LoginView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
 
 
+CustomTokenObtainPairView = LoginView
+
+
 @extend_schema(
     tags=['auth'],
     summary='Register a new user',

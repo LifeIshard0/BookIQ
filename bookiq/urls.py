@@ -8,19 +8,11 @@ from drf_spectacular.views import (
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-
-    # Auth endpoints
-    path('api/auth/', include('users.urls')),
-
-    # Core API
-    path('api/', include('books.urls')),
-
-    # Analytics
-    path('api/analytics/', include('books.urls_analytics')),
-
-    # OpenAPI schema (raw JSON/YAML)
-    path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
-
+    path('api/auth/', include('users.urls')), # Auth endpoints
+    path('api/', include('books.urls')), # Core API
+    path('api/analytics/', include('books.urls_analytics')), # Analytics
+    path('api/schema/', SpectacularAPIView.as_view(), name='schema'), # OpenAPI schema (raw JSON/YAML)
+    
     # Swagger UI
     path(
         'api/docs/',
@@ -35,3 +27,6 @@ urlpatterns = [
         name='redoc'
     ),
 ]
+
+handler404 = 'books.exceptions.handler_404'
+handler500 = 'books.exceptions.handler_500'
