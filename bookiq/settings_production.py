@@ -33,12 +33,15 @@ ALLOWED_HOSTS = os.environ.get(
 ).split(',')
 
 # ─── Database ──────────────────────────────────────────
-# Railway injects DATABASE_URL automatically when a
-# PostgreSQL plugin is attached to the project.
+# Railway usually injects a private DATABASE_URL. Fall back to
+# DATABASE_PUBLIC_URL when the deploy/release context cannot resolve
+# the private Railway hostname.
+
+database_url = os.environ.get('DATABASE_PUBLIC_URL') or os.environ.get('DATABASE_URL')
 
 DATABASES = {
     'default': dj_database_url.config(
-        default=os.environ.get('DATABASE_URL'),
+        default=database_url,
         conn_max_age=600,
         conn_health_checks=True,
     )
