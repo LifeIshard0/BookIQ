@@ -700,75 +700,8 @@ https://www.kaggle.com/datasets/dylanjcastillo/7k-books-with-metadata
 
 ---
 
-## GenAI Usage
+## BookIQ — Full Build Roadmap (March → May 2026)
 
-This project was completed in a **Green Light assessment** where Generative AI was permitted and encouraged as part of the development process, provided that all tools, purposes, and selected conversation logs were declared clearly.
-
-### Tools used
-
-| Tool | Purpose |
-|---|---|
-| Perplexity AI | High-level architecture planning, technology comparison, feature scoping, design review, report refinement |
-| GitHub Copilot | Inline code completion, refactoring support, debugging assistance, test-writing support |
-
-### How AI was used effectively
-
-GenAI was used as a structured productivity and thinking tool across the full project lifecycle rather than only as a code generator. This matches the brief’s expectation that students use AI creatively, methodically, and at a high level to explore alternatives and support more advanced solutions.
-
-#### 1. Project ideation and scope refinement
-AI was used at the start of the project to explore possible API ideas, compare their technical depth, and identify which idea would best satisfy the coursework requirement for a data-driven API with database integration, CRUD functionality, documentation, and presentation value.
-
-For BookIQ specifically, AI helped evaluate whether a book metadata platform could support not only CRUD, but also recommendation features, analytics endpoints, search ranking, and modern interoperability through MCP. This was useful because the brief rewards originality, advanced methodologies, and solutions that go beyond the minimum requirements.
-
-#### 2. Stack selection and architecture decisions
-AI was used to compare Django REST Framework with alternatives such as FastAPI and Node.js/Express, focusing on database integration, authentication support, maintainability, and suitability for a production-style coursework API. This supported a more reasoned stack choice rather than a default framework choice.
-
-It was also used to explore architectural patterns such as service-layer design, modular apps, and separation of HTTP logic from business logic. This kind of design exploration is closer to the “creative thinking and solution exploration” described in the higher GenAI mark bands.
-
-#### 3. Feature design through alternative exploration
-AI was used to compare multiple approaches before implementation rather than immediately generating code. For example, it was useful for evaluating different search strategies, recommendation strategies, import workflows, and metadata cleaning approaches. This reflects the brief’s emphasis on using AI to explore alternatives and reimagine more advanced solutions.
-
-A good example was comparing simpler keyword search with more advanced PostgreSQL full-text search, and comparing basic ranking with hybrid ranking. Using AI in this way improved the design quality because the final solution was chosen after considering trade-offs rather than copying the first idea.
-
-#### 4. Dataset discovery and import workflow
-The brief specifically recommends using AI to help discover datasets, explore their structure, and generate import scripts from a sample of the data. AI was therefore used to evaluate candidate datasets, inspect columns, identify missing values or inconsistencies, and plan the import pipeline before data was inserted into PostgreSQL.
-
-This was especially useful for deciding how CSV columns should map onto the application schema and for thinking through validation and cleaning steps before implementation. The result was a more deliberate import process rather than a one-off script.
-
-#### 5. Debugging and refinement
-AI was used for debugging, but not only at a surface level. It was used to reason about failing tests, serializer issues, ORM query behaviour, signal side effects, permission logic, and edge cases in import and search flows. The brief explicitly permits AI for debugging and proof-reading, but stronger use comes from combining this with deeper architectural reasoning.
-
-#### 6. Documentation and communication
-AI was also used to improve the clarity and structure of the README, technical report, and presentation content. This included refining wording, reorganising sections, and making sure the final submission communicated design choices clearly, which is important because the assessment also evaluates documentation quality and oral presentation.
-
-### Why this was effective
-
-The most effective use of AI in this project was not asking it to “build the app”, but using it to:
-- compare alternatives before coding,
-- break the project into smaller implementation phases,
-- identify trade-offs between different technical choices,
-- accelerate repetitive tasks such as boilerplate and test generation,
-- improve clarity in documentation and presentation.
-
-This approach is more defensible in the oral exam because each major decision still comes from deliberate human judgement. It also aligns more closely with the brief’s higher-band expectation of creative, high-level, and methodologically sound GenAI usage.
-
-### Responsible use statement
-
-All final design decisions, implementation choices, and explanations remain my own. GenAI was used as a support tool for planning, exploration, debugging, and communication, not as a substitute for understanding. Selected exported conversation logs are included as supplementary material, in line with the coursework requirements.
-
-### Main Dialogue
-
-#### Question example 1
-
-77731819-f4fa-46a6-b6e3-2f7891c5dbc0.pdf is my idea.
-
-COMP3011_Coursework1_Brief__2025_2026.pdf is the web assessment brief.
-
-I want you review my idea and generate a technical report in notion and then guide me how to finish the project step-by-step by breaking it into small parts.
-
-#### Output example 1
-
-BookIQ — Full Build Roadmap (March → May 2026)
 🟥 Phase 1 — Foundation (Week 1–2, now)
 - 01	Django project + app structure + requirements.txt
 - 02	Custom User model with role field (Reader/Curator/Admin)
@@ -803,15 +736,6 @@ BookIQ — Full Build Roadmap (March → May 2026)
 - 23	README.md (professional, full setup instructions)
 - 24	Final polish — pagination, ordering, filtering
 - 25	API docs PDF export + Notion report evidence filled in
-
-#### Input example 2
-
-There are some fields like title, author, language must be filled when you create a book. But the quality score calculates completeness with completed_field/total_field. I think when you calculate completeness, don't consider about title and author and language field.
-
-#### Output example 2
-
-You are 100% correct. If title and author are mandatory to even create the record, including them in a "completeness" metric is cheating. It artificially inflates every book's score by giving them "free points" for data that the database requires anyway. Furthermore, isbn_13 and genre are already being scored in their own dedicated weights (the 50% and 20% chunks).
-If we include them in the 30% completeness chunk, we are double-counting.
 
 ## Licence
 
